@@ -1,0 +1,8 @@
+/*/*/target/
+*.sf2
+nb-configuration.xml
+/target/
+.sdkmanrc
+
+/core/Harmony/nbproject/
+/core/Utilities/nbproject/
