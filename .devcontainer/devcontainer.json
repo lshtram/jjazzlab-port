@@ -1,0 +1,57 @@
+{
+  "name": "JJazzLab Development Environment",
+  "image": "mcr.microsoft.com/devcontainers/java:23",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "23",
+      "jdkDistro": "open",
+      "installMaven": "true",
+      "mavenVersion": "latest"
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "vscjava.vscode-maven",
+        "redhat.java",
+        "vscjava.vscode-java-debug",
+        "vscjava.vscode-java-test",
+        "vscjava.vscode-java-dependency"
+      ],
+      "settings": {
+        "java.configuration.runtimes": [
+          {
+            "name": "JavaSE-23",
+            "path": "/usr/local/sdkman/candidates/java/current",
+            "default": true
+          }
+        ],
+        "java.jdt.ls.java.home": "/usr/local/sdkman/candidates/java/current",
+        "maven.terminal.useJavaHome": true,
+        "java.import.maven.enabled": true
+      }
+    }
+  },
+
+  "postCreateCommand": "bash -c 'cd /workspaces/jjazzlab-port && echo \"JJazzLab development environment ready!\" && echo \"\" && echo \"To build the project, run:\" && echo \"  cd JJazzLab && mvn clean install -DskipTests\" && echo \"\" && echo \"Or use the build script:\" && echo \"  ./build.sh\" && echo \"\" && java -version'",
+
+  "remoteUser": "vscode",
+  
+  "mounts": [
+    "source=${localEnv:HOME}/.m2,target=/home/vscode/.m2,type=bind,consistency=cached"
+  ],
+
+  "forwardPorts": [],
+  
+  "portsAttributes": {},
+
+  "containerEnv": {
+    "JAVA_HOME": "/usr/local/sdkman/candidates/java/current",
+    "MAVEN_OPTS": "-Xmx2048m"
+  }
+}
