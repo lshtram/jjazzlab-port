@@ -10,9 +10,11 @@
     and provides mirrors/fallbacks for reliability
     -->
     
-    <localRepository/>
+    <!-- Use the standard Maven local repository location -->
+    <localRepository>${user.home}/.m2/repository</localRepository>
     
     <interactiveMode>true</interactiveMode>
+    <!-- Disable offline mode - try to use local cache but allow network fallback -->
     <offline>false</offline>
     
     <pluginGroups>

@@ -1,11 +1,11 @@
 {
   "name": "JJazzLab Development Environment",
-  "image": "mcr.microsoft.com/devcontainers/java:23",
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
   
   "features": {
     "ghcr.io/devcontainers/features/java:1": {
-      "version": "23",
-      "jdkDistro": "open",
+      "version": "21",
+      "jdkDistro": "ms",
       "installMaven": "true",
       "mavenVersion": "latest"
     },
@@ -26,7 +26,7 @@
       "settings": {
         "java.configuration.runtimes": [
           {
-            "name": "JavaSE-23",
+            "name": "JavaSE-21",
             "path": "/usr/local/sdkman/candidates/java/current",
             "default": true
           }

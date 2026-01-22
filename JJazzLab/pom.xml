@@ -44,7 +44,7 @@
         <netbeans.version>RELEASE280</netbeans.version>
         <brandingToken>jjazzlab</brandingToken> <!-- used for nbm:cluster-app configuration -->        
         <jjazzlab.maven.compiler.plugin.version>3.13.0</jjazzlab.maven.compiler.plugin.version>
-        <jjazzlab.compiler.release>23</jjazzlab.compiler.release>
+        <jjazzlab.compiler.release>21</jjazzlab.compiler.release>
         <jjazzlab.javac.fork>false</jjazzlab.javac.fork>
         <jjazzlab.javac.showDeprecation>true</jjazzlab.javac.showDeprecation>
         <jjazzlab.javac.showWarnings>true</jjazzlab.javac.showWarnings>
