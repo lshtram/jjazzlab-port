@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 
+          https://maven.apache.org/xsd/settings-1.2.0.xsd">
+    
+    <!--
+    Maven settings for JJazzLab build
+    This file configures Maven to use Maven Central as the primary repository
+    and provides mirrors/fallbacks for reliability
+    -->
+    
+    <localRepository/>
+    
+    <interactiveMode>true</interactiveMode>
+    <offline>false</offline>
+    
+    <pluginGroups>
+        <pluginGroup>org.apache.netbeans.utilities</pluginGroup>
+    </pluginGroups>
+    
+    <proxies>
+        <!-- Configure proxies here if needed -->
+    </proxies>
+    
+    <mirrors>
+        <!--
+        If the Apache NetBeans repository is unreachable, Maven will try Central first
+        since we've defined it first in the POM repositories section.
+        No mirrors needed by default - Maven Central should be accessible from most environments.
+        -->
+        
+        <!-- Uncomment this if you need to use a mirror of Maven Central
+        <mirror>
+            <id>central-mirror</id>
+            <name>Maven Central Mirror</name>
+            <url>https://repo1.maven.org/maven2</url>
+            <mirrorOf>central</mirrorOf>
+        </mirror>
+        -->
+    </mirrors>
+    
+    <profiles>
+        <profile>
+            <id>jjazzlab-build</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <repositories>
+                <repository>
+                    <id>central</id>
+                    <name>Maven Central Repository</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                    <releases>
+                        <enabled>true</enabled>
+                        <updatePolicy>never</updatePolicy>
+                    </releases>
+                    <snapshots>
+                        <enabled>false</enabled>
+                    </snapshots>
+                </repository>
+            </repositories>
+            <pluginRepositories>
+                <pluginRepository>
+                    <id>central</id>
+                    <name>Maven Central Repository</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                    <releases>
+                        <enabled>true</enabled>
+                        <updatePolicy>never</updatePolicy>
+                    </releases>
+                    <snapshots>
+                        <enabled>false</enabled>
+                    </snapshots>
+                </pluginRepository>
+            </pluginRepositories>
+        </profile>
+    </profiles>
+    
+    <activeProfiles>
+        <activeProfile>jjazzlab-build</activeProfile>
+    </activeProfiles>
+    
+</settings>
