@@ -13,6 +13,7 @@ buildNumber.properties
 # Java compiled files
 *.class
 *.jar
+!offline-repository/**/*.jar
 *.war
 *.ear
 *.nar
