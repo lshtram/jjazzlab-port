@@ -7,28 +7,43 @@
 - Note: `npm install` in `web/app` ran before the Node upgrade; re-run to ensure native deps align with Node 20.
 
 ## Repo Changes
-- Ported Java chord-mode degree mapping (most-important-degree logic) and refined `fitDegree` behavior to match Java.
-- Aligned melody/bass mapping rules with Java and added note-overlap cleanup to match `fixOverlappedNotes`.
-- Extended compare tool to apply overlap cleanup before grouping.
-- Added a curated Yamaha style set under `web/fixtures/styles/curated`.
+- Added MegaVoice filtering based on SInt bank MSB=8 parsing to match Java (skip pitches >= 84 for flagged channels).
+- Extended parsed style metadata with `megaVoiceChannels` and wired it through rendering/mapping.
+- Added Yamaha muted chord/note parsing and filtering to match Java channel eligibility.
+- Added a curated Yamaha style set under `web/fixtures/styles/curated` (replaced JazzWaltzFast with SynthPop).
+- Added Java/TS MIDI fixtures for 10 curated styles.
+- Added `scripts/fetch-yamaha-styles.sh` to download larger style packs on demand.
 
 ## Validation
 - `npm -C web/app run -s build` passes.
 - Java vs TS MIDI parity (via `tools:compare-mapping`):
   - `AcousticJazz1.S563.sty`: mismatch groups = 0
+  - `CoolPop.sty`: mismatch groups = 0
+  - `DiscoPhilly.sty`: mismatch groups = 0
   - `JazzBluesSimple.S740.sty`: mismatch groups = 0
   - `JazzSamba.S346.sty`: mismatch groups = 0
+  - `PopR&B.sty`: mismatch groups = 0
   - `RocknRoll.sty`: mismatch groups = 0
+  - `SambaCity213.s460.sty`: mismatch groups = 0
+  - `SynthPop.sty`: mismatch groups = 0
+  - `Zouk.sty`: mismatch groups = 0
 
 ## Working Tree Snapshot
+- Modified: `web/app/src/core/render.ts`
 - Modified: `web/app/src/core/yamaha/buildSong.ts`
-- Modified: `web/app/tools/compare-style-mapping.ts`
-- Added: `web/fixtures/styles/curated/`
+- Modified: `web/app/src/core/yamaha/parseCasm.ts`
+- Modified: `web/app/src/core/yamaha/parseStyle.ts`
+- Deleted: `web/fixtures/styles/curated/JazzWaltzFast.S499.sty`
+- Added: `web/fixtures/styles/curated/SynthPop.sty`
+- Added: `web/fixtures/midi/java/*_12bar.mid` (new 6 styles)
+- Added: `web/fixtures/midi/ts/*_12bar.mid` (10 styles regenerated)
+- Added: `scripts/fetch-yamaha-styles.sh`
 - Untracked: `web/fixtures/styles/yamaha/`, `web/tmp/`, `web/app/tmp/`, `.m2/`, `.vscode/`
 
 ## Notes
-- Curated styles are now tracked under `web/fixtures/styles/curated`.
+- Curated styles are tracked under `web/fixtures/styles/curated`.
+- SInt parsing is only used to detect MegaVoice channels (bank MSB 8).
 
 ## Next Steps
-- Add/adjust MIDI fixtures for curated styles beyond the 4 parity-checked ones.
-- Optionally add a fetch script to refresh the larger Yamaha style set when needed.
+- Run `scripts/fetch-yamaha-styles.sh --all` if you want the full style library locally (kept out of git).
+- Continue core porting work (song parsing, style selection, and synth integration).

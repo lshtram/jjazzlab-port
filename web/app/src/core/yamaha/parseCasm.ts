@@ -15,6 +15,8 @@ export type CasmInfo = {
   sourceChordByChannel: Map<number, number>;
   sourceChordTypeByChannel: Map<number, string>;
   ctb2ByChannel: Map<number, Ctb2Settings>;
+  mutedNotesByChannel: Map<number, Set<number>>;
+  mutedChordsByChannel: Map<number, Set<string>>;
   cnttByChannel: Map<number, { ntt: number; bassOn: boolean }>;
 };
 
@@ -125,6 +127,8 @@ const yamChordNames = [
   'Maj',
 ];
 
+const yamChordOrder = yamChordNames.slice();
+
 function mapSourceChordType(code: number): string | null {
   if (code > 0x22) {
     return null;
@@ -141,6 +145,70 @@ function adaptNttForSff1(raw: number, bassOn: boolean): { ntt: number; bassOn: b
     return { ntt: 3, bassOn };
   }
   return { ntt: raw, bassOn };
+}
+
+function parseMutedNotes(b1: number, b2: number): Set<number> {
+  const muted = new Set<number>();
+  if ((b1 & 8) === 0) muted.add(11);
+  if ((b1 & 4) === 0) muted.add(10);
+  if ((b1 & 2) === 0) muted.add(9);
+  if ((b1 & 1) === 0) muted.add(8);
+  if ((b2 & 128) === 0) muted.add(7);
+  if ((b2 & 64) === 0) muted.add(6);
+  if ((b2 & 32) === 0) muted.add(5);
+  if ((b2 & 16) === 0) muted.add(4);
+  if ((b2 & 8) === 0) muted.add(3);
+  if ((b2 & 4) === 0) muted.add(2);
+  if ((b2 & 2) === 0) muted.add(1);
+  if ((b2 & 1) === 0) muted.add(0);
+  return muted;
+}
+
+function parseMutedChords(b1: number, b2: number, b3: number, b4: number, b5: number): Set<string> {
+  const muted = new Set<string>();
+  const addIf = (bitSet: boolean, index: number) => {
+    if (!bitSet) {
+      const name = yamChordOrder[index];
+      if (name) {
+        muted.add(name);
+      }
+    }
+  };
+  addIf((b1 & 2) !== 0, 0);
+  addIf((b1 & 1) !== 0, 1);
+  addIf((b2 & 128) !== 0, 2);
+  addIf((b2 & 64) !== 0, 3);
+  addIf((b2 & 32) !== 0, 4);
+  addIf((b2 & 16) !== 0, 5);
+  addIf((b2 & 8) !== 0, 6);
+  addIf((b2 & 4) !== 0, 7);
+  addIf((b2 & 2) !== 0, 8);
+  addIf((b2 & 1) !== 0, 9);
+  addIf((b3 & 128) !== 0, 10);
+  addIf((b3 & 64) !== 0, 11);
+  addIf((b3 & 32) !== 0, 12);
+  addIf((b3 & 16) !== 0, 13);
+  addIf((b3 & 8) !== 0, 14);
+  addIf((b3 & 4) !== 0, 15);
+  addIf((b3 & 2) !== 0, 16);
+  addIf((b3 & 1) !== 0, 17);
+  addIf((b4 & 128) !== 0, 18);
+  addIf((b4 & 64) !== 0, 19);
+  addIf((b4 & 32) !== 0, 20);
+  addIf((b4 & 16) !== 0, 21);
+  addIf((b4 & 8) !== 0, 22);
+  addIf((b4 & 4) !== 0, 23);
+  addIf((b4 & 2) !== 0, 24);
+  addIf((b4 & 1) !== 0, 25);
+  addIf((b5 & 128) !== 0, 26);
+  addIf((b5 & 64) !== 0, 27);
+  addIf((b5 & 32) !== 0, 28);
+  addIf((b5 & 16) !== 0, 29);
+  addIf((b5 & 8) !== 0, 30);
+  addIf((b5 & 4) !== 0, 31);
+  addIf((b5 & 2) !== 0, 32);
+  addIf((b5 & 1) !== 0, 33);
+  return muted;
 }
 
 function readCtb2Subpart(reader: Reader, sffType: SffType): Ctb2Settings {
@@ -179,8 +247,13 @@ function parseCtabSection(data: Uint8Array, info: CasmInfo, isCtb2: boolean, sff
   reader.skip(8); // name
   const destChannel = reader.readUInt8();
   reader.skip(1); // editable
-  reader.skip(2); // muted notes
-  reader.skip(5); // muted chords
+  const mutedNotesByte1 = reader.readUInt8();
+  const mutedNotesByte2 = reader.readUInt8();
+  const mutedChordByte1 = reader.readUInt8();
+  const mutedChordByte2 = reader.readUInt8();
+  const mutedChordByte3 = reader.readUInt8();
+  const mutedChordByte4 = reader.readUInt8();
+  const mutedChordByte5 = reader.readUInt8();
   const sourceChordNote = reader.readUInt8();
   const sourceChordType = reader.readUInt8();
   const chordName = mapSourceChordType(sourceChordType);
@@ -189,6 +262,20 @@ function parseCtabSection(data: Uint8Array, info: CasmInfo, isCtb2: boolean, sff
   info.sourceChordByChannel.set(srcChannel, sourceChordNote);
   if (chordName) {
     info.sourceChordTypeByChannel.set(srcChannel, chordName);
+  }
+  const mutedNotes = parseMutedNotes(mutedNotesByte1, mutedNotesByte2);
+  if (mutedNotes.size > 0) {
+    info.mutedNotesByChannel.set(srcChannel, mutedNotes);
+  }
+  const mutedChords = parseMutedChords(
+    mutedChordByte1,
+    mutedChordByte2,
+    mutedChordByte3,
+    mutedChordByte4,
+    mutedChordByte5
+  );
+  if (mutedChords.size > 0) {
+    info.mutedChordsByChannel.set(srcChannel, mutedChords);
   }
 
   if (isCtb2) {
@@ -218,6 +305,8 @@ function createCasmInfo(): CasmInfo {
     sourceChordByChannel: new Map(),
     sourceChordTypeByChannel: new Map(),
     ctb2ByChannel: new Map(),
+    mutedNotesByChannel: new Map(),
+    mutedChordsByChannel: new Map(),
     cnttByChannel: new Map(),
   };
 }

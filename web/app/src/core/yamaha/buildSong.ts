@@ -153,14 +153,32 @@ function computeParallelChord(
   return destPitches;
 }
 
+function dedupeChordPitches(pitches: number[]): number[] {
+  if (pitches.length <= 1) {
+    return pitches.slice();
+  }
+  const result: number[] = [];
+  let last: number | null = null;
+  for (const pitch of pitches) {
+    if (last === null || pitch !== last) {
+      result.push(pitch);
+      last = pitch;
+    }
+  }
+  return result;
+}
+
 function computeChordScore(
   sourcePitches: number[],
   destPitches: number[],
   destInfo?: ChordTypeInfo,
   destRoot?: number
 ): number {
-  if (sourcePitches.length === 0 || sourcePitches.length !== destPitches.length) {
+  if (sourcePitches.length === 0) {
     return Number.POSITIVE_INFINITY;
+  }
+  if (sourcePitches.length !== destPitches.length) {
+    return 10000;
   }
   let distance = 0;
   for (let i = 0; i < sourcePitches.length; i += 1) {
@@ -914,6 +932,62 @@ function extractChordQuality(symbol: string): string {
   return match?.[3] ?? '';
 }
 
+const YAM_CHORD_ALIASES: Array<{ name: string; aliases: string[] }> = [
+  { name: '1+2+5', aliases: ['2'] },
+  { name: 'sus4', aliases: ['sus'] },
+  { name: '1+5', aliases: [''] },
+  { name: '1+8', aliases: [''] },
+  { name: '7aug', aliases: ['7#5', 'alt', '7alt', '9#5', '7b9#5'] },
+  { name: 'Maj7aug', aliases: ['M7#5'] },
+  { name: '7(#9)', aliases: ['7#9', '7#9#5', '7#9b5', '13#9'] },
+  { name: '7(b13)', aliases: ['7#5'] },
+  { name: '7(b9)', aliases: ['7b9', '13b9'] },
+  { name: '7(13)', aliases: ['13'] },
+  { name: '7#11', aliases: ['7b9#11', '7#9#11', '13b5', '13#11', '9#11', '13b9#11'] },
+  { name: '7(9)', aliases: ['9'] },
+  { name: '7b5', aliases: ['9b5', '7b9b5', '13b9b5', '13#9b5'] },
+  { name: '7sus4', aliases: ['7sus', '7susb9', '9sus', '13sus', '13susb9'] },
+  { name: '7th', aliases: ['7'] },
+  { name: 'dim7', aliases: ['dim7M'] },
+  { name: 'dim', aliases: [''] },
+  { name: 'minMaj7(9)', aliases: ['m97M'] },
+  { name: 'minMaj7', aliases: ['m7M'] },
+  { name: 'min7(11)', aliases: ['m711', 'min11', 'm11', 'm911', 'm11b5'] },
+  { name: 'min7(9)', aliases: ['m9'] },
+  { name: 'min(9)', aliases: ['m9', 'm2'] },
+  { name: 'm7b5', aliases: ['m9b5', 'm+', 'm7#5'] },
+  { name: 'min7', aliases: ['m7', 'm13', 'm713', 'm7b9'] },
+  { name: 'min6', aliases: ['m6', 'm69'] },
+  { name: 'min', aliases: ['m'] },
+  { name: 'aug', aliases: ['+'] },
+  { name: 'Maj6(9)', aliases: ['69'] },
+  { name: 'Maj7(9)', aliases: ['M9', 'M713', 'M13'] },
+  { name: 'Maj(9)', aliases: ['M9'] },
+  { name: 'Maj7#11', aliases: ['M7#11', 'M7b5', 'M7#5', 'M9#11', 'M13#11'] },
+  { name: 'Maj7', aliases: ['M7'] },
+  { name: 'Maj6', aliases: ['6'] },
+  { name: 'Maj', aliases: [''] },
+];
+
+const YAM_CHORD_ALIAS_MAP = new Map<string, string>();
+for (const entry of YAM_CHORD_ALIASES) {
+  const names = [entry.name, ...entry.aliases];
+  for (const alias of names) {
+    const key = alias.trim().toLowerCase();
+    if (key || alias === '') {
+      YAM_CHORD_ALIAS_MAP.set(key, entry.name);
+    }
+  }
+}
+
+function getYamChordName(symbol: string): string | null {
+  const quality = extractChordQuality(symbol).trim().toLowerCase();
+  if (YAM_CHORD_ALIAS_MAP.has(quality)) {
+    return YAM_CHORD_ALIAS_MAP.get(quality) ?? null;
+  }
+  return null;
+}
+
 type BuildSongOptions = {
   bars: number;
   inputTicksPerBeat: number;
@@ -926,6 +1000,9 @@ type BuildSongOptions = {
   sourceChordByChannel: Map<number, number>;
   sourceChordTypeByChannel: Map<number, string>;
   ctb2ByChannel: Map<number, Ctb2Settings>;
+  mutedNotesByChannel: Map<number, Set<number>>;
+  mutedChordsByChannel: Map<number, Set<string>>;
+  megaVoiceChannels: Set<number>;
   onNote?: (info: NoteMapping) => void;
 };
 
@@ -955,6 +1032,9 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     sourceChordByChannel,
     sourceChordTypeByChannel,
     ctb2ByChannel,
+    mutedNotesByChannel,
+    mutedChordsByChannel,
+    megaVoiceChannels,
     onNote,
   } = options;
   const beatsPerBar = (timeSignature.numerator * 4) / timeSignature.denominator;
@@ -981,11 +1061,15 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
       ];
 
   const isDrums = (channel: number) => channel === 8 || channel === 9;
+  const isMegaVoiceNote = (channel: number, pitch: number) => megaVoiceChannels.has(channel) && pitch >= 84;
   const defaultTones = chordTonesForSymbol('C7');
 
   const sourceChordData = new Map<number, SourceChordData>();
   const channelPitches = new Map<number, Set<number>>();
   for (const note of part.notes) {
+    if (isMegaVoiceNote(note.channel, note.pitch)) {
+      continue;
+    }
     if (isDrums(note.channel)) {
       continue;
     }
@@ -1053,6 +1137,7 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
 
   const chordModeCache = new Map<string, ChordModeMapping>();
   const destInfoCache = new Map<string, ChordTypeInfo>();
+  const mutedCache = new Map<string, boolean>();
   const getDestInfo = (segment: ChordSegment): ChordTypeInfo => {
     const key = segment.symbol ?? `${segment.root}:${segment.tones.join(',')}`;
     const cached = destInfoCache.get(key);
@@ -1094,14 +1179,16 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     let bestScore = Number.POSITIVE_INFINITY;
 
     for (const permutation of permutations) {
-      const above = computeParallelChord(data.pitches, data.relPcs, data.uniqueRelPcs, permutation, false);
+      const aboveRaw = computeParallelChord(data.pitches, data.relPcs, data.uniqueRelPcs, permutation, false);
+      const above = dedupeChordPitches(aboveRaw);
       const scoreAbove = computeChordScore(data.pitches, above, destInfo, destRoot);
       if (scoreAbove < bestScore) {
         bestScore = scoreAbove;
         bestChord = above;
       }
 
-      const below = computeParallelChord(data.pitches, data.relPcs, data.uniqueRelPcs, permutation, true);
+      const belowRaw = computeParallelChord(data.pitches, data.relPcs, data.uniqueRelPcs, permutation, true);
+      const below = dedupeChordPitches(belowRaw);
       const scoreBelow = computeChordScore(data.pitches, below, destInfo, destRoot);
       if (scoreBelow < bestScore) {
         bestScore = scoreBelow;
@@ -1122,9 +1209,34 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     return result;
   };
 
+  const isChannelMutedForSegment = (channel: number, segment: ChordSegment): boolean => {
+    const key = `${channel}:${segment.root}:${segment.symbol ?? ''}`;
+    const cached = mutedCache.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const root = normalizePitchClass(segment.root);
+    const mutedNotes = mutedNotesByChannel.get(channel);
+    if (mutedNotes && mutedNotes.has(root)) {
+      mutedCache.set(key, true);
+      return true;
+    }
+    const mutedChords = mutedChordsByChannel.get(channel);
+    const yamChord = getYamChordName(segment.symbol ?? '');
+    if (yamChord && mutedChords && mutedChords.has(yamChord)) {
+      mutedCache.set(key, true);
+      return true;
+    }
+    mutedCache.set(key, false);
+    return false;
+  };
+
   let baseTick = 0;
   while (baseTick < totalTicks) {
     for (const note of part.notes) {
+      if (isMegaVoiceNote(note.channel, note.pitch)) {
+        continue;
+      }
       const noteStart = baseTick + Math.round(note.startTick * scale);
       const noteEnd = Math.min(noteStart + Math.round(note.duration * scale), totalTicks);
       if (noteStart >= totalTicks || noteEnd <= noteStart) {
@@ -1149,6 +1261,10 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
 
         const destChannel = channelMap.get(note.channel) ?? note.channel;
         const segment = getChordSegment(segmentStart);
+        if (isChannelMutedForSegment(note.channel, segment)) {
+          segmentStart = stop;
+          continue;
+        }
         const ctb2 = ctb2ByChannel.get(note.channel);
         const targetRoot = normalizePitchClass(segment.root);
         const sourceRoot = normalizePitchClass(sourceChordByChannel.get(note.channel) ?? 0);

@@ -78,6 +78,9 @@ export function renderStyleToNotes(styleData: Uint8Array, options: RenderOptions
     sourceChordByChannel: casmInfo.sourceChordByChannel,
     sourceChordTypeByChannel: casmInfo.sourceChordTypeByChannel,
     ctb2ByChannel: casmInfo.ctb2ByChannel,
+    mutedNotesByChannel: casmInfo.mutedNotesByChannel,
+    mutedChordsByChannel: casmInfo.mutedChordsByChannel,
+    megaVoiceChannels: parsed.megaVoiceChannels,
     onNote: options.onNote,
   });
 

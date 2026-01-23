@@ -26,6 +26,7 @@ export type ParsedStyle = {
   casmByPart: CasmByPart;
   defaultCasmInfo: CasmInfo;
   sffType: 'SFF1' | 'SFF2' | null;
+  megaVoiceChannels: Set<number>;
 };
 
 type MidiEvent = Record<string, unknown> & {
@@ -41,6 +42,44 @@ type MidiEvent = Record<string, unknown> & {
   value?: number;
 };
 
+function parseMegaVoiceChannels(track: MidiEvent[]): Set<number> {
+  const result = new Set<number>();
+  const bankMsbByChannel = new Map<number, number>();
+  let insideSInt = false;
+
+  for (const event of track) {
+    if (event.meta && event.type === 'marker' && typeof event.text === 'string') {
+      insideSInt = event.text === 'SInt';
+      continue;
+    }
+
+    if (!insideSInt) {
+      continue;
+    }
+
+    const channel = typeof event.channel === 'number' ? event.channel : null;
+    if (channel === null) {
+      continue;
+    }
+
+    if (event.type === 'controller') {
+      if (event.controllerType === 0 && typeof event.value === 'number') {
+        bankMsbByChannel.set(channel, event.value);
+      }
+      continue;
+    }
+
+    if (event.type === 'programChange') {
+      const msb = bankMsbByChannel.get(channel) ?? 0;
+      if (msb === 8) {
+        result.add(channel);
+      }
+    }
+  }
+
+  return result;
+}
+
 export function normalizeStylePartName(name: string): string {
   return name.trim().replace(/\s+/g, '_').toLowerCase();
 }
@@ -51,6 +90,7 @@ export function parseStyleFromBuffer(buffer: Uint8Array): ParsedStyle {
   const track = midi.tracks[0] ?? [];
   const tempo = getTempoFromTrack(track) ?? 500000;
   const timeSignature = getTimeSignatureFromTrack(track);
+  const megaVoiceChannels = parseMegaVoiceChannels(track as MidiEvent[]);
   let sffType: 'SFF1' | 'SFF2' | null = null;
   for (const event of track as MidiEvent[]) {
     if (event.meta && event.type === 'marker' && typeof event.text === 'string') {
@@ -69,6 +109,8 @@ export function parseStyleFromBuffer(buffer: Uint8Array): ParsedStyle {
       sourceChordByChannel: new Map<number, number>(),
       sourceChordTypeByChannel: new Map<number, string>(),
       ctb2ByChannel: new Map<number, Ctb2Settings>(),
+      mutedNotesByChannel: new Map<number, Set<number>>(),
+      mutedChordsByChannel: new Map<number, Set<string>>(),
       cnttByChannel: new Map<number, { ntt: number; bassOn: boolean }>(),
     } as CasmInfo);
 
@@ -203,5 +245,6 @@ export function parseStyleFromBuffer(buffer: Uint8Array): ParsedStyle {
     casmByPart,
     defaultCasmInfo,
     sffType,
+    megaVoiceChannels,
   };
 }
