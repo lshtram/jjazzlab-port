@@ -188,6 +188,79 @@ function groupMappings(notes: NoteMapping[]): Map<string, Group<NoteMapping>> {
   return grouped;
 }
 
+function fixOverlappedMappings(mappings: NoteMapping[]): NoteMapping[] {
+  const result: Array<NoteMapping | null> = mappings.slice();
+  const groups = new Map<string, Array<{ index: number; note: NoteMapping }>>();
+  for (let i = 0; i < mappings.length; i += 1) {
+    const note = mappings[i];
+    const key = `${note.destChannel}:${note.destPitch}`;
+    const bucket = groups.get(key) ?? [];
+    bucket.push({ index: i, note });
+    groups.set(key, bucket);
+  }
+
+  for (const group of groups.values()) {
+    group.sort((a, b) => {
+      if (a.note.startTick !== b.note.startTick) {
+        return a.note.startTick - b.note.startTick;
+      }
+      return a.index - b.index;
+    });
+    const noteOnBuffer: Array<{ index: number; note: NoteMapping }> = [];
+    for (const current of group) {
+      if (result[current.index] === null) {
+        continue;
+      }
+      const currentNote = result[current.index] as NoteMapping;
+      const currentStart = currentNote.startTick;
+      const currentEnd = currentStart + currentNote.duration;
+      let removed = false;
+
+      let bufferIndex = 0;
+      while (bufferIndex < noteOnBuffer.length) {
+        const active = noteOnBuffer[bufferIndex];
+        const activeNote = result[active.index] as NoteMapping;
+        const activeStart = activeNote.startTick;
+        const activeEnd = activeStart + activeNote.duration;
+
+        if (activeEnd <= currentStart) {
+          noteOnBuffer.splice(bufferIndex, 1);
+          continue;
+        }
+        if (activeEnd >= currentEnd) {
+          result[current.index] = null;
+          removed = true;
+          break;
+        }
+        if (currentStart === activeStart) {
+          if (currentNote.duration <= activeNote.duration) {
+            result[current.index] = null;
+            removed = true;
+            break;
+          }
+          result[active.index] = null;
+          noteOnBuffer.splice(bufferIndex, 1);
+          continue;
+        }
+        const newDuration = currentStart - activeStart;
+        if (newDuration <= 0) {
+          result[active.index] = null;
+          noteOnBuffer.splice(bufferIndex, 1);
+          continue;
+        }
+        result[active.index] = { ...activeNote, duration: newDuration };
+        noteOnBuffer.splice(bufferIndex, 1);
+      }
+
+      if (!removed) {
+        noteOnBuffer.push(current);
+      }
+    }
+  }
+
+  return result.filter((note): note is NoteMapping => note !== null);
+}
+
 function parseKey(key: string): { tick: number; duration: number; channel: number } {
   const [tick, duration, channel] = key.split(':').map((value) => Number(value));
   return { tick, duration, channel };
@@ -212,9 +285,10 @@ renderStyleToNotes(styleData, {
   onNote: (info) => mappings.push(info),
 });
 
+const fixedMappings = fixOverlappedMappings(mappings);
 const javaNotes = extractNotes(javaPath);
 const javaGroups = groupMidiNotes(javaNotes);
-const tsGroups = groupMappings(mappings);
+const tsGroups = groupMappings(fixedMappings);
 
 const keys = new Set([...javaGroups.keys(), ...tsGroups.keys()]);
 const sortedKeys = Array.from(keys).sort((a, b) => {

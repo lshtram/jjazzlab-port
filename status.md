@@ -7,27 +7,28 @@
 - Note: `npm install` in `web/app` ran before the Node upgrade; re-run to ensure native deps align with Node 20.
 
 ## Repo Changes
-- Added note-mapping debug callback (`onNote`) to `buildSongFromStylePart` and `renderStyleToNotes`.
-- Added `web/app/tools/compare-style-mapping.ts` and npm script `tools:compare-mapping` to compare Java MIDI vs TS notes and print mapping details.
-- Updated `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml` to use a `fluidsynthjava.version` property with a JDK 23 override.
+- Ported Java chord-mode degree mapping (most-important-degree logic) and refined `fitDegree` behavior to match Java.
+- Aligned melody/bass mapping rules with Java and added note-overlap cleanup to match `fixOverlappedNotes`.
+- Extended compare tool to apply overlap cleanup before grouping.
+- Added a curated Yamaha style set under `web/fixtures/styles/curated`.
 
 ## Validation
 - `npm -C web/app run -s build` passes.
-- `npm -C web/app run -s tools:compare-mapping -- --style .../JazzSamba.S346.sty --java .../jazz_samba_12bar.mid --part "Main A" --bars 12 --limit 1`
-  - Sample mismatch shows chord-mode mapping differences with `ctb2 ntr=1 ntt=2` and degrees like `SIXTH_OR_THIRTEENTH -> SEVENTH_FLAT`.
-  - `mismatch groups=1 totalGroups=476` (limited by `--limit 1`).
+- Java vs TS MIDI parity (via `tools:compare-mapping`):
+  - `AcousticJazz1.S563.sty`: mismatch groups = 0
+  - `JazzBluesSimple.S740.sty`: mismatch groups = 0
+  - `JazzSamba.S346.sty`: mismatch groups = 0
+  - `RocknRoll.sty`: mismatch groups = 0
 
 ## Working Tree Snapshot
-- Modified: `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml`
-- Modified: `web/app/package.json`
-- Modified: `web/app/src/core/render.ts`
 - Modified: `web/app/src/core/yamaha/buildSong.ts`
-- Added: `web/app/tools/compare-style-mapping.ts`
-- Untracked: `web/fixtures/styles/`, `web/tmp/`, `web/app/tmp/`, `.m2/`, `.vscode/`
+- Modified: `web/app/tools/compare-style-mapping.ts`
+- Added: `web/fixtures/styles/curated/`
+- Untracked: `web/fixtures/styles/yamaha/`, `web/tmp/`, `web/app/tmp/`, `.m2/`, `.vscode/`
 
 ## Notes
-- Style assets downloaded under `web/fixtures/styles/` (untracked) are used for comparison tooling.
+- Curated styles are now tracked under `web/fixtures/styles/curated`.
 
 ## Next Steps
-- Port Java chord-mode mapping (`SourcePhrase.getDestDegreesChordMode` + `fitDegree*`) to resolve JazzSamba/RocknRoll mismatches.
-- Decide which external style assets should be tracked vs fetched by script for reproducible tests.
+- Add/adjust MIDI fixtures for curated styles beyond the 4 parity-checked ones.
+- Optionally add a fetch script to refresh the larger Yamaha style set when needed.

@@ -153,7 +153,12 @@ function computeParallelChord(
   return destPitches;
 }
 
-function computeChordScore(sourcePitches: number[], destPitches: number[]): number {
+function computeChordScore(
+  sourcePitches: number[],
+  destPitches: number[],
+  destInfo?: ChordTypeInfo,
+  destRoot?: number
+): number {
   if (sourcePitches.length === 0 || sourcePitches.length !== destPitches.length) {
     return Number.POSITIVE_INFINITY;
   }
@@ -163,7 +168,100 @@ function computeChordScore(sourcePitches: number[], destPitches: number[]): numb
   }
   const topDelta = Math.abs(sourcePitches[sourcePitches.length - 1] - destPitches[destPitches.length - 1]);
   const lowDelta = Math.abs(sourcePitches[0] - destPitches[0]);
-  return distance + 3 * topDelta + lowDelta;
+  let score = distance + 3 * topDelta + lowDelta;
+
+  if (destPitches.length > 2) {
+    const size = destPitches.length;
+    const maxPitch = destPitches[destPitches.length - 1];
+    const minPitch = destPitches[0];
+    if (destInfo?.isThirteenth && maxPitch - minPitch < 11) {
+      score += 4 * size;
+    }
+    if (destPitches[destPitches.length - 2] === maxPitch - 1) {
+      score += 3 * size;
+    }
+    if (maxPitch - minPitch === 13) {
+      score += 4 * size;
+    }
+    if (destPitches[1] - minPitch >= 9 && destRoot !== undefined && normalizePitchClass(minPitch) !== destRoot) {
+      score += 2 * size;
+    }
+  }
+
+  return score;
+}
+
+function fixOverlappedNotes(notes: NoteEvent[]): NoteEvent[] {
+  const result: Array<NoteEvent | null> = notes.slice();
+  const groups = new Map<string, Array<{ index: number; note: NoteEvent }>>();
+  for (let i = 0; i < notes.length; i += 1) {
+    const note = notes[i];
+    const key = `${note.channel}:${note.pitch}`;
+    const bucket = groups.get(key) ?? [];
+    bucket.push({ index: i, note });
+    groups.set(key, bucket);
+  }
+
+  for (const group of groups.values()) {
+    group.sort((a, b) => {
+      if (a.note.startTick !== b.note.startTick) {
+        return a.note.startTick - b.note.startTick;
+      }
+      return a.index - b.index;
+    });
+    const noteOnBuffer: Array<{ index: number; note: NoteEvent }> = [];
+    for (const current of group) {
+      if (result[current.index] === null) {
+        continue;
+      }
+      const currentNote = result[current.index] as NoteEvent;
+      const currentStart = currentNote.startTick;
+      const currentEnd = currentStart + currentNote.duration;
+      let removed = false;
+
+      let bufferIndex = 0;
+      while (bufferIndex < noteOnBuffer.length) {
+        const active = noteOnBuffer[bufferIndex];
+        const activeNote = result[active.index] as NoteEvent;
+        const activeStart = activeNote.startTick;
+        const activeEnd = activeStart + activeNote.duration;
+
+        if (activeEnd <= currentStart) {
+          noteOnBuffer.splice(bufferIndex, 1);
+          continue;
+        }
+        if (activeEnd >= currentEnd) {
+          result[current.index] = null;
+          removed = true;
+          break;
+        }
+        if (currentStart === activeStart) {
+          if (currentNote.duration <= activeNote.duration) {
+            result[current.index] = null;
+            removed = true;
+            break;
+          }
+          result[active.index] = null;
+          noteOnBuffer.splice(bufferIndex, 1);
+          continue;
+        }
+        const newDuration = currentStart - activeStart;
+        if (newDuration <= 0) {
+          result[active.index] = null;
+          noteOnBuffer.splice(bufferIndex, 1);
+          continue;
+        }
+        result[active.index] = { ...activeNote, duration: newDuration };
+        noteOnBuffer.splice(bufferIndex, 1);
+      }
+
+      if (!removed) {
+        noteOnBuffer.push(current);
+      }
+    }
+  }
+
+  return result.filter((note): note is NoteEvent => note !== null);
 }
 
 type DegreeNatural =
@@ -212,6 +310,45 @@ const DEGREE_DEFS: Record<DegreeName, { pitch: number; natural: DegreeNatural; a
   SEVENTH: { pitch: 11, natural: 'SEVENTH', accidental: 0 },
 };
 
+type DegreeIndex =
+  | 'ROOT'
+  | 'THIRD_OR_FOURTH'
+  | 'FIFTH'
+  | 'SIXTH_OR_SEVENTH'
+  | 'EXTENSION1'
+  | 'EXTENSION2'
+  | 'EXTENSION3';
+
+const DEGREE_ORDER: DegreeName[] = [
+  'ROOT',
+  'NINTH_FLAT',
+  'NINTH',
+  'NINTH_SHARP',
+  'THIRD_FLAT',
+  'THIRD',
+  'FOURTH_OR_ELEVENTH',
+  'ELEVENTH_SHARP',
+  'FIFTH_FLAT',
+  'FIFTH',
+  'FIFTH_SHARP',
+  'THIRTEENTH_FLAT',
+  'SIXTH_OR_THIRTEENTH',
+  'SEVENTH_FLAT',
+  'SEVENTH',
+];
+
+const DEGREE_ORDER_INDEX = new Map<DegreeName, number>(DEGREE_ORDER.map((degree, index) => [degree, index]));
+
+const DEGREE_INDEX_ORDER: DegreeIndex[] = [
+  'ROOT',
+  'THIRD_OR_FOURTH',
+  'FIFTH',
+  'SIXTH_OR_SEVENTH',
+  'EXTENSION1',
+  'EXTENSION2',
+  'EXTENSION3',
+];
+
 type ChordFamily = 'major' | 'minor' | 'seventh' | 'diminished' | 'sus' | 'other';
 
 type ChordProfile = {
@@ -255,12 +392,15 @@ function degreeMostProbable(relPitch: number, isMajor: boolean): DegreeName {
 
 function buildChordProfile(quality: string): ChordProfile {
   const normalized = quality.trim().toLowerCase();
+  const isRootOnly = normalized === '1+8';
+  const isPowerChord = normalized === '1+5';
+  const isSpecial2 = normalized === '1+2+5' || normalized === '2' || normalized.includes('sus2');
   const isMinor = /^(min|m)(?!aj)/.test(normalized);
   const hasSus = normalized.includes('sus');
   const hasDim = normalized.includes('dim');
   const hasMaj = normalized.includes('maj');
   const hasSeventh = normalized.includes('7');
-  const isMajor = hasMaj || (!isMinor && !hasDim && !hasSus);
+  const isMajor = !isRootOnly && !isPowerChord && !isSpecial2 && (hasMaj || (!isMinor && !hasDim && !hasSus));
 
   let family: ChordFamily = 'major';
   if (hasSus) {
@@ -283,6 +423,22 @@ function buildChordProfile(quality: string): ChordProfile {
   };
 
   addDegree('ROOT', 'ROOT');
+
+  if (isRootOnly || isPowerChord || isSpecial2) {
+    if (isPowerChord || isSpecial2) {
+      addDegree('FIFTH', 'FIFTH');
+    }
+    if (isSpecial2) {
+      addDegree('NINTH', 'NINTH');
+    }
+    return {
+      family: isSpecial2 ? 'sus' : 'other',
+      isMajor: false,
+      extension: normalized,
+      degreesByNatural,
+      degreesByPitch,
+    };
+  }
 
   if (hasSus) {
     addDegree('FOURTH', 'FOURTH_OR_ELEVENTH');
@@ -348,6 +504,216 @@ function buildChordProfile(quality: string): ChordProfile {
   };
 }
 
+type ChordTypeInfo = {
+  profile: ChordProfile;
+  normalized: string;
+  degrees: DegreeName[];
+  isSpecial2: boolean;
+  baseHasSix: boolean;
+  isThirteenth: boolean;
+  mostImportantDegreeIndexes: DegreeIndex[];
+};
+
+function sortDegreesByOrder(degrees: DegreeName[]): DegreeName[] {
+  return degrees.slice().sort((a, b) => (DEGREE_ORDER_INDEX.get(a) ?? 0) - (DEGREE_ORDER_INDEX.get(b) ?? 0));
+}
+
+function relativePitchDelta(sourceRel: number, destRel: number): number {
+  let delta = destRel - sourceRel;
+  if (delta > 6) {
+    delta -= 12;
+  } else if (delta < -5) {
+    delta += 12;
+  }
+  return delta;
+}
+
+function buildChordDegrees(
+  profile: ChordProfile,
+  normalized: string,
+  options: { isRootOnly: boolean; isPowerChord: boolean; isSpecial2: boolean }
+): DegreeName[] {
+  const degrees: DegreeName[] = ['ROOT'];
+  if (options.isRootOnly) {
+    return degrees;
+  }
+  if (options.isPowerChord || options.isSpecial2) {
+    const fifth = profile.degreesByNatural.get('FIFTH') ?? 'FIFTH';
+    degrees.push(fifth);
+    if (options.isSpecial2) {
+      const ninth = profile.degreesByNatural.get('NINTH') ?? 'NINTH';
+      degrees.push(ninth);
+    }
+    return degrees;
+  }
+
+  const third = profile.degreesByNatural.get('THIRD');
+  const fourth = profile.degreesByNatural.get('FOURTH');
+  if (third) {
+    degrees.push(third);
+  } else if (fourth) {
+    degrees.push(fourth);
+  }
+
+  const fifth = profile.degreesByNatural.get('FIFTH');
+  if (fifth) {
+    degrees.push(fifth);
+  }
+
+  const hasSeventh = profile.degreesByNatural.has('SEVENTH');
+  const hasSixth = profile.degreesByNatural.has('SIXTH');
+  const hasThirteenth = profile.degreesByNatural.has('THIRTEENTH');
+  const isSixthChord = hasSixth && !hasSeventh && !hasThirteenth;
+  if (isSixthChord) {
+    degrees.push(profile.degreesByNatural.get('SIXTH') ?? 'SIXTH_OR_THIRTEENTH');
+  }
+  if (hasSeventh) {
+    degrees.push(profile.degreesByNatural.get('SEVENTH') ?? 'SEVENTH');
+  }
+
+  const ninth = profile.degreesByNatural.get('NINTH');
+  if (ninth) {
+    degrees.push(ninth);
+  }
+
+  const hasExplicit11 = normalized.includes('11') || normalized.includes('#11');
+  if (hasExplicit11) {
+    const eleventh = profile.degreesByNatural.get('ELEVENTH');
+    if (eleventh) {
+      degrees.push(eleventh);
+    }
+  }
+
+  const hasThirteenthExtension = hasThirteenth || (hasSixth && hasSeventh) || normalized.includes('13');
+  if (hasThirteenthExtension) {
+    const thirteenth = profile.degreesByNatural.get('THIRTEENTH') ?? profile.degreesByNatural.get('SIXTH');
+    if (thirteenth) {
+      degrees.push(thirteenth);
+    }
+  }
+
+  return degrees;
+}
+
+function getDegreeByIndex(info: ChordTypeInfo, index: DegreeIndex): DegreeName | null {
+  if (info.isSpecial2) {
+    switch (index) {
+      case 'ROOT':
+        return info.degrees[0] ?? null;
+      case 'FIFTH':
+        return info.degrees[1] ?? null;
+      case 'EXTENSION1':
+        return info.degrees[2] ?? null;
+      default:
+        return null;
+    }
+  }
+  const ordinal = DEGREE_INDEX_ORDER.indexOf(index);
+  if (ordinal === -1) {
+    return null;
+  }
+  return info.degrees[ordinal] ?? null;
+}
+
+function fitDegreeAdvancedIndex(info: ChordTypeInfo, index: DegreeIndex): DegreeName {
+  const direct = getDegreeByIndex(info, index);
+  if (direct) {
+    return direct;
+  }
+  switch (index) {
+    case 'THIRD_OR_FOURTH':
+      return fitDegreeAdvanced(info.profile, 'FOURTH_OR_ELEVENTH');
+    case 'SIXTH_OR_SEVENTH':
+      return fitDegreeAdvanced(info.profile, 'SEVENTH');
+    case 'EXTENSION1':
+      return fitDegreeAdvanced(info.profile, 'NINTH');
+    case 'EXTENSION2':
+    case 'EXTENSION3':
+      return fitDegreeAdvanced(info.profile, 'SIXTH_OR_THIRTEENTH');
+    case 'FIFTH':
+      return info.profile.degreesByNatural.get('FIFTH') ?? 'FIFTH';
+    case 'ROOT':
+    default:
+      return 'ROOT';
+  }
+}
+
+function computeMostImportantDegreeIndexes(info: ChordTypeInfo): DegreeIndex[] {
+  const result: DegreeIndex[] = [];
+  if (!info.isSpecial2) {
+    result.push('THIRD_OR_FOURTH');
+  }
+  const fifth = getDegreeByIndex(info, 'FIFTH');
+  if (fifth && fifth !== 'FIFTH') {
+    result.push('FIFTH');
+  }
+  if (getDegreeByIndex(info, 'SIXTH_OR_SEVENTH')) {
+    result.push('SIXTH_OR_SEVENTH');
+  }
+  if (getDegreeByIndex(info, 'EXTENSION1')) {
+    result.push('EXTENSION1');
+  }
+  if (info.baseHasSix) {
+    result.push('ROOT');
+    if (fifth === 'FIFTH') {
+      result.push('FIFTH');
+    }
+  } else {
+    if (fifth === 'FIFTH') {
+      result.push('FIFTH');
+    }
+    result.push('ROOT');
+  }
+  if (getDegreeByIndex(info, 'EXTENSION2')) {
+    result.push('EXTENSION2');
+  }
+  if (getDegreeByIndex(info, 'EXTENSION3')) {
+    result.push('EXTENSION3');
+  }
+  return result;
+}
+
+function buildChordTypeInfo(quality: string, profile?: ChordProfile): ChordTypeInfo {
+  const normalized = quality.trim().toLowerCase();
+  const isRootOnly = normalized === '1+8';
+  const isPowerChord = normalized === '1+5';
+  const isSpecial2 = normalized === '1+2+5' || normalized === '2' || normalized.includes('sus2');
+  const baseHasSix = normalized.includes('6') && !normalized.includes('13');
+  const isThirteenth = normalized.includes('13');
+  const resolvedProfile = profile ?? buildChordProfile(quality);
+  const degrees = buildChordDegrees(resolvedProfile, normalized, {
+    isRootOnly,
+    isPowerChord,
+    isSpecial2,
+  });
+  const info: ChordTypeInfo = {
+    profile: resolvedProfile,
+    normalized,
+    degrees,
+    isSpecial2,
+    baseHasSix,
+    isThirteenth,
+    mostImportantDegreeIndexes: [],
+  };
+  info.mostImportantDegreeIndexes = computeMostImportantDegreeIndexes(info);
+  return info;
+}
+
+function isSameChordType(a?: ChordTypeInfo, b?: ChordTypeInfo): boolean {
+  if (!a || !b) {
+    return false;
+  }
+  if (a.degrees.length !== b.degrees.length) {
+    return false;
+  }
+  for (let i = 0; i < a.degrees.length; i += 1) {
+    if (a.degrees[i] !== b.degrees[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function fitDegree(profile: ChordProfile, degree: DegreeName): DegreeName | null {
   const natural = DEGREE_DEFS[degree].natural;
   const direct = profile.degreesByNatural.get(natural);
@@ -355,17 +721,14 @@ function fitDegree(profile: ChordProfile, degree: DegreeName): DegreeName | null
     if (natural === 'SEVENTH' && profile.extension.includes('6')) {
       return 'SIXTH_OR_THIRTEENTH';
     }
+    if (profile.degreesByNatural.has('SEVENTH') && natural === 'SIXTH') {
+      return profile.degreesByNatural.get('SEVENTH') ?? direct;
+    }
     return direct;
   }
   const byPitch = profile.degreesByPitch.get(DEGREE_DEFS[degree].pitch);
   if (byPitch) {
     return byPitch;
-  }
-  if (profile.extension.includes('6') && natural === 'SEVENTH') {
-    return 'SIXTH_OR_THIRTEENTH';
-  }
-  if (profile.degreesByNatural.has('SEVENTH') && natural === 'SIXTH') {
-    return profile.degreesByNatural.get('SEVENTH') ?? null;
   }
   return null;
 }
@@ -433,6 +796,119 @@ function fitDegreeAdvanced(profile: ChordProfile, degree: DegreeName): DegreeNam
   }
 }
 
+function fitDegreeMelodyMode(profile: ChordProfile, degree: DegreeName): DegreeName {
+  const direct = fitDegree(profile, degree);
+  if (direct) {
+    return direct;
+  }
+  const natural = DEGREE_DEFS[degree].natural;
+  if (natural === 'NINTH' || natural === 'SEVENTH' || degree === 'SIXTH_OR_THIRTEENTH') {
+    return fitDegreeAdvanced(profile, degree);
+  }
+  return degree;
+}
+
+function getDestDegreesChordMode(
+  srcInfo: ChordTypeInfo,
+  destInfo: ChordTypeInfo,
+  srcDegrees: DegreeName[],
+  sourceRoot: number,
+  destRoot: number,
+  useDestRootForMatching: boolean
+): Map<DegreeName, DegreeName> {
+  const result = new Map<DegreeName, DegreeName>();
+  const remainingSrc = sortDegreesByOrder(srcDegrees);
+  const nbSrcDegrees = remainingSrc.length;
+  const nbDestDegrees = destInfo.degrees.length;
+
+  if (nbSrcDegrees <= 2) {
+    for (const srcDegree of remainingSrc) {
+      result.set(srcDegree, fitDegreeAdvanced(destInfo.profile, srcDegree));
+    }
+    return result;
+  }
+
+  if (nbDestDegrees >= nbSrcDegrees) {
+    const degreeIndexes = destInfo.mostImportantDegreeIndexes.slice(0, nbSrcDegrees);
+    for (const di of degreeIndexes.slice()) {
+      const destDegree = fitDegreeAdvancedIndex(destInfo, di);
+      const srcDegree = fitDegreeAdvancedIndex(srcInfo, di);
+      const srcIndex = remainingSrc.indexOf(srcDegree);
+      if (srcIndex !== -1) {
+        result.set(srcDegree, destDegree);
+        remainingSrc.splice(srcIndex, 1);
+        const indexToRemove = degreeIndexes.indexOf(di);
+        if (indexToRemove !== -1) {
+          degreeIndexes.splice(indexToRemove, 1);
+        }
+      }
+    }
+
+    for (const srcDegree of remainingSrc) {
+      if (degreeIndexes.length === 0) {
+        result.set(srcDegree, fitDegreeAdvanced(destInfo.profile, srcDegree));
+        continue;
+      }
+      const srcPitchBase = useDestRootForMatching ? destRoot : sourceRoot;
+      const srcRel = normalizePitchClass(srcPitchBase + DEGREE_DEFS[srcDegree].pitch);
+      let closestDegreeIndex: DegreeIndex = degreeIndexes[0];
+      let smallestDelta = Number.POSITIVE_INFINITY;
+      for (const di of degreeIndexes) {
+        const destDegree = fitDegreeAdvancedIndex(destInfo, di);
+        const destRel = normalizePitchClass(destRoot + DEGREE_DEFS[destDegree].pitch);
+        const pitchDelta = Math.abs(relativePitchDelta(srcRel, destRel));
+        if (pitchDelta < smallestDelta) {
+          smallestDelta = pitchDelta;
+          closestDegreeIndex = di;
+        }
+      }
+      const destDegree = fitDegreeAdvancedIndex(destInfo, closestDegreeIndex);
+      result.set(srcDegree, destDegree);
+      const indexToRemove = degreeIndexes.indexOf(closestDegreeIndex);
+      if (indexToRemove !== -1) {
+        degreeIndexes.splice(indexToRemove, 1);
+      }
+    }
+
+    return result;
+  }
+
+  const degreeIndexes = destInfo.mostImportantDegreeIndexes.slice();
+  for (const di of degreeIndexes.slice()) {
+    const destDegree = fitDegreeAdvancedIndex(destInfo, di);
+    const srcDegree = fitDegreeAdvancedIndex(srcInfo, di);
+    const srcIndex = remainingSrc.indexOf(srcDegree);
+    if (srcIndex !== -1) {
+      result.set(srcDegree, destDegree);
+      remainingSrc.splice(srcIndex, 1);
+    }
+  }
+
+  for (const srcDegree of remainingSrc) {
+    if (degreeIndexes.length === 0) {
+      result.set(srcDegree, fitDegreeAdvanced(destInfo.profile, srcDegree));
+      continue;
+    }
+    const srcPitchBase = useDestRootForMatching ? destRoot : sourceRoot;
+    const srcRel = normalizePitchClass(srcPitchBase + DEGREE_DEFS[srcDegree].pitch);
+    let closestDegreeIndex: DegreeIndex = degreeIndexes[0];
+    let smallestDelta = Number.POSITIVE_INFINITY;
+    for (const di of degreeIndexes) {
+      const destDegree = fitDegreeAdvancedIndex(destInfo, di);
+      const destRel = normalizePitchClass(destRoot + DEGREE_DEFS[destDegree].pitch);
+      const pitchDelta = Math.abs(relativePitchDelta(srcRel, destRel));
+      if (pitchDelta < smallestDelta) {
+        smallestDelta = pitchDelta;
+        closestDegreeIndex = di;
+      }
+    }
+    const destDegree = fitDegreeAdvancedIndex(destInfo, closestDegreeIndex);
+    result.set(srcDegree, destDegree);
+  }
+
+  return result;
+}
+
 function extractChordQuality(symbol: string): string {
   const match = symbol.match(/^([A-Ga-g])([#b]?)([^/]*)/);
   return match?.[3] ?? '';
@@ -460,6 +936,8 @@ type SourceChordData = {
   sourceRoot: number;
   sourceTones: number[];
   profile: ChordProfile;
+  usedDegrees: DegreeName[];
+  typeInfo: ChordTypeInfo;
 };
 
 export function buildSongFromStylePart(options: BuildSongOptions): {
@@ -531,6 +1009,14 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     const sourceChordName = sourceChordTypeByChannel.get(channel) ?? '';
     const sourceTones = chordTonesForTypeName(sourceChordName) ?? defaultTones;
     const profile = buildChordProfile(sourceChordName);
+    const usedDegrees: DegreeName[] = [];
+    for (const pc of uniqueRelPcs) {
+      const relToRoot = normalizePitchClass(pc - sourceRoot);
+      const degree = degreeMostProbable(relToRoot, profile.isMajor);
+      if (!usedDegrees.includes(degree)) {
+        usedDegrees.push(degree);
+      }
+    }
     sourceChordData.set(channel, {
       pitches,
       relPcs,
@@ -538,6 +1024,8 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
       sourceRoot,
       sourceTones,
       profile,
+      usedDegrees: sortDegreesByOrder(usedDegrees),
+      typeInfo: buildChordTypeInfo(sourceChordName, profile),
     });
   }
 
@@ -558,20 +1046,26 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     );
   };
 
-  const chordModeCache = new Map<string, Map<number, number>>();
-  const destProfileCache = new Map<string, ChordProfile>();
-  const getDestProfile = (segment: ChordSegment): ChordProfile => {
+  type ChordModeMapping = {
+    pitchMap: Map<number, number>;
+    degreeMap: Map<DegreeName, DegreeName>;
+  };
+
+  const chordModeCache = new Map<string, ChordModeMapping>();
+  const destInfoCache = new Map<string, ChordTypeInfo>();
+  const getDestInfo = (segment: ChordSegment): ChordTypeInfo => {
     const key = segment.symbol ?? `${segment.root}:${segment.tones.join(',')}`;
-    const cached = destProfileCache.get(key);
+    const cached = destInfoCache.get(key);
     if (cached) {
       return cached;
     }
     const quality = extractChordQuality(segment.symbol ?? '');
     const profile = buildChordProfile(quality);
-    destProfileCache.set(key, profile);
-    return profile;
+    const info = buildChordTypeInfo(quality, profile);
+    destInfoCache.set(key, info);
+    return info;
   };
-  const getChordModeMapping = (channel: number, segment: ChordSegment): Map<number, number> | null => {
+  const getChordModeMapping = (channel: number, segment: ChordSegment): ChordModeMapping | null => {
     const key = `${channel}:${segment.startTick}:${segment.root}:${segment.tones.join(',')}`;
     const cached = chordModeCache.get(key);
     if (cached) {
@@ -581,27 +1075,34 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     if (!data || data.pitches.length === 0 || data.uniqueRelPcs.length === 0) {
       return null;
     }
-    const destProfile = getDestProfile(segment);
-    const sourceDegrees = data.uniqueRelPcs.map((pc) =>
-      degreeMostProbable(normalizePitchClass(pc - data.sourceRoot), data.profile.isMajor)
+    const destInfo = getDestInfo(segment);
+    const destRoot = normalizePitchClass(segment.root);
+    const degreeMap = getDestDegreesChordMode(
+      data.typeInfo,
+      destInfo,
+      data.usedDegrees,
+      data.sourceRoot,
+      destRoot,
+      false
     );
-    const destRelPitches = sourceDegrees.map((degree) =>
-      normalizePitchClass(segment.root + DEGREE_DEFS[fitDegreeAdvanced(destProfile, degree)].pitch)
+    const destDegrees = data.usedDegrees.map(
+      (degree) => degreeMap.get(degree) ?? fitDegreeAdvanced(destInfo.profile, degree)
     );
+    const destRelPitches = destDegrees.map((degree) => normalizePitchClass(segment.root + DEGREE_DEFS[degree].pitch));
     const permutations = destRelPitches.length > 1 ? uniquePermutations(destRelPitches) : [destRelPitches];
     let bestChord: number[] | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
 
     for (const permutation of permutations) {
       const above = computeParallelChord(data.pitches, data.relPcs, data.uniqueRelPcs, permutation, false);
-      const scoreAbove = computeChordScore(data.pitches, above);
+      const scoreAbove = computeChordScore(data.pitches, above, destInfo, destRoot);
       if (scoreAbove < bestScore) {
         bestScore = scoreAbove;
         bestChord = above;
       }
 
       const below = computeParallelChord(data.pitches, data.relPcs, data.uniqueRelPcs, permutation, true);
-      const scoreBelow = computeChordScore(data.pitches, below);
+      const scoreBelow = computeChordScore(data.pitches, below, destInfo, destRoot);
       if (scoreBelow < bestScore) {
         bestScore = scoreBelow;
         bestChord = below;
@@ -616,8 +1117,9 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     for (let i = 0; i < data.pitches.length && i < bestChord.length; i += 1) {
       mapping.set(data.pitches[i], bestChord[i]);
     }
-    chordModeCache.set(key, mapping);
-    return mapping;
+    const result = { pitchMap: mapping, degreeMap };
+    chordModeCache.set(key, result);
+    return result;
   };
 
   let baseTick = 0;
@@ -656,7 +1158,8 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
         const sourceProfile = data?.profile ?? buildChordProfile('');
         const srcRelPitch = normalizePitchClass(note.pitch - sourceRoot);
         const srcDegree = degreeMostProbable(srcRelPitch, sourceProfile.isMajor);
-        const destProfile = getDestProfile(segment);
+        const destInfo = getDestInfo(segment);
+        const destProfile = destInfo.profile;
         let destDegree: DegreeName = srcDegree;
         let mapping: 'chord' | 'melody' | 'root' = 'root';
 
@@ -666,19 +1169,28 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
 
           if (isChordMode) {
             mapping = 'chord';
-            destDegree = fitDegreeAdvanced(destProfile, srcDegree);
             const chordMapping = getChordModeMapping(note.channel, segment);
-            const mapped = chordMapping?.get(note.pitch);
+            destDegree = chordMapping?.degreeMap.get(srcDegree) ?? fitDegreeAdvanced(destProfile, srcDegree);
+            const mapped = chordMapping?.pitchMap.get(note.pitch);
             if (mapped !== undefined) {
               pitch = mapped;
             }
           } else if (isMelodyMode) {
             mapping = 'melody';
-            destDegree = fitDegreeAdvanced(destProfile, srcDegree);
-            const destRelPitch = normalizePitchClass(targetRoot + DEGREE_DEFS[destDegree].pitch);
             const rootDelta = normalizePitchClass(targetRoot - sourceRoot);
             const basePitch = note.pitch + rootDelta;
-            pitch = getClosestPitch(basePitch, destRelPitch);
+            const isBassMode = ctb2?.bassOn === true;
+            const sameChordType = isSameChordType(data?.typeInfo, destInfo);
+            if (isBassMode && sameChordType) {
+              const srcRelToRoot = normalizePitchClass(note.pitch - sourceRoot);
+              const destRelPitch = normalizePitchClass(targetRoot + srcRelToRoot);
+              pitch = getClosestPitch(basePitch, destRelPitch);
+              destDegree = degreeMostProbable(normalizePitchClass(destRelPitch - targetRoot), destProfile.isMajor);
+            } else {
+              destDegree = fitDegreeMelodyMode(destProfile, srcDegree);
+              const destRelPitch = normalizePitchClass(targetRoot + DEGREE_DEFS[destDegree].pitch);
+              pitch = getClosestPitch(basePitch, destRelPitch);
+            }
           } else {
             pitch = note.pitch + (targetRoot - sourceRoot);
           }
@@ -750,5 +1262,6 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     baseTick += partLengthTicks;
   }
 
-  return { notes, totalTicks };
+  const fixedNotes = fixOverlappedNotes(notes);
+  return { notes: fixedNotes, totalTicks };
 }
