@@ -13,6 +13,7 @@
 - Added a curated Yamaha style set under `web/fixtures/styles/curated` (replaced JazzWaltzFast with SynthPop).
 - Added Java/TS MIDI fixtures for 10 curated styles.
 - Added `scripts/fetch-yamaha-styles.sh` to download larger style packs on demand.
+- Added `scripts/render-midi.sh` helper to render MIDI to WAV via Fluidsynth.
 
 ## Validation
 - `npm -C web/app run -s build` passes.
