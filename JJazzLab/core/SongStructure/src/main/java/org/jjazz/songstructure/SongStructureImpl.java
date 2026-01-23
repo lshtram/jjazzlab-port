@@ -955,6 +955,10 @@ public class SongStructureImpl implements SongStructure, Serializable, PropertyC
      */
     private void generateAllAdaptedRhythms()
     {
+        if (Boolean.getBoolean("jjazz.skipAdaptedRhythms"))
+        {
+            return;
+        }
         RhythmDatabase rdb = RhythmDatabase.getDefault();
         Set<TimeSignature> timeSignatures = getUniqueRhythms(false, true) // Include AdaptedRhythms to get all time signatures
                 .stream()
