@@ -132,10 +132,27 @@ export function buildMidiFile(options: {
   tempo: number;
   timeSignature: TimeSignature;
   notes: NoteEvent[];
+  formatType?: 0 | 1;
+  trackName?: string;
+  endTick?: number;
 }): Buffer {
-  const events: MidiEventWithTick[] = [];
+  const formatType = options.formatType ?? 0;
+  const metaEvents: MidiEventWithTick[] = [];
+  const noteEvents: MidiEventWithTick[] = [];
 
-  events.push({
+  if (options.trackName) {
+    metaEvents.push({
+      tick: 0,
+      event: {
+        deltaTime: 0,
+        meta: true,
+        type: 'trackName',
+        text: options.trackName,
+      },
+    });
+  }
+
+  metaEvents.push({
     tick: 0,
     event: {
       deltaTime: 0,
@@ -145,7 +162,7 @@ export function buildMidiFile(options: {
     },
   });
 
-  events.push({
+  metaEvents.push({
     tick: 0,
     event: {
       deltaTime: 0,
@@ -159,7 +176,7 @@ export function buildMidiFile(options: {
   });
 
   for (const note of options.notes) {
-    events.push({
+    noteEvents.push({
       tick: note.startTick,
       event: {
         deltaTime: 0,
@@ -169,7 +186,7 @@ export function buildMidiFile(options: {
         velocity: note.velocity,
       },
     });
-    events.push({
+    noteEvents.push({
       tick: note.startTick + note.duration,
       event: {
         deltaTime: 0,
@@ -181,44 +198,71 @@ export function buildMidiFile(options: {
     });
   }
 
-  events.sort((a, b) => {
-    if (a.tick !== b.tick) {
-      return a.tick - b.tick;
-    }
-    const order = (event: MidiEvent) => {
-      if (event.meta) {
-        return 0;
+  const sortEvents = (events: MidiEventWithTick[]) => {
+    events.sort((a, b) => {
+      if (a.tick !== b.tick) {
+        return a.tick - b.tick;
       }
-      if (event.type === 'noteOff') {
-        return 1;
-      }
-      return 2;
-    };
-    return order(a.event) - order(b.event);
-  });
+      const order = (event: MidiEvent) => {
+        if (event.meta) {
+          return 0;
+        }
+        if (event.type === 'noteOff') {
+          return 1;
+        }
+        return 2;
+      };
+      return order(a.event) - order(b.event);
+    });
+  };
 
-  let lastTick = 0;
-  const track: MidiEvent[] = events.map(({ tick, event }) => {
-    const deltaTime = tick - lastTick;
-    lastTick = tick;
-    return {
-      ...event,
-      deltaTime,
-    };
-  });
+  sortEvents(metaEvents);
+  sortEvents(noteEvents);
 
-  track.push({
-    deltaTime: 0,
-    meta: true,
-    type: 'endOfTrack',
-  });
+  const buildTrack = (events: MidiEventWithTick[], endTick?: number): MidiEvent[] => {
+    let lastTick = 0;
+    const track: MidiEvent[] = events.map(({ tick, event }) => {
+      const deltaTime = tick - lastTick;
+      lastTick = tick;
+      return {
+        ...event,
+        deltaTime,
+      };
+    });
+
+    const finalTick = endTick ?? lastTick;
+    track.push({
+      deltaTime: Math.max(0, finalTick - lastTick),
+      meta: true,
+      type: 'endOfTrack',
+    });
+    return track;
+  };
+
+  const metaEndTick = options.endTick ?? (noteEvents.length ? noteEvents[noteEvents.length - 1]!.tick : 0);
+  const metaTrack = buildTrack(metaEvents, metaEndTick);
+  const noteTrack = buildTrack(noteEvents);
+
+  const tracks =
+    formatType === 1
+      ? [metaTrack, noteTrack]
+      : (() => {
+          const combined = [...metaEvents, ...noteEvents];
+          sortEvents(combined);
+          return [
+            buildTrack(
+              combined,
+              options.endTick ?? (noteEvents.length ? noteEvents[noteEvents.length - 1]!.tick : 0)
+            ),
+          ];
+        })();
 
   const midiData = {
     header: {
-      formatType: 0,
+      formatType,
       ticksPerBeat: options.ticksPerBeat,
     },
-    tracks: [track],
+    tracks,
   };
 
   const bytes = writeMidi(midiData as unknown as Record<string, unknown>);

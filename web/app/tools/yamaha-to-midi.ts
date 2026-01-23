@@ -170,7 +170,7 @@ if (!part) {
 const timeSignature: TimeSignature = parsed.timeSignature ?? { numerator: 4, denominator: 4 };
 const tempo = computeTempoMicroseconds(args.tempo, parsed.tempo);
 
-const { notes } = buildSongFromStylePart({
+const { notes, totalTicks } = buildSongFromStylePart({
   bars: args.bars,
   inputTicksPerBeat: parsed.ticksPerBeat,
   outputTicksPerBeat: args.outputTicksPerBeat,
@@ -190,6 +190,9 @@ const midi = buildMidiFile({
   tempo,
   timeSignature,
   notes,
+  formatType: 1,
+  trackName: 'YamahaBlues (JJazzLab song)',
+  endTick: totalTicks + 1,
 });
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });

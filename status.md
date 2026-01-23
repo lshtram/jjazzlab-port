@@ -13,7 +13,7 @@
 - Added MIDI fixtures `web/fixtures/midi/java/jazzblues_simple_12bar.mid` and `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`.
 - Updated `web/fixtures/midi/README.md` with offline export steps.
   - TS harness applies CASM channel mapping and root-only chord transposition with chord-boundary splits.
-  - MIDI note counts now match the Java baseline; timing differs slightly.
+  - MIDI note counts and end tick now match the Java baseline.
 
 ## Working Tree Snapshot
 - Modified: `JJazzLab/core/SongStructure/src/main/java/org/jjazz/songstructure/SongStructureImpl.java`
@@ -23,4 +23,3 @@
 
 ## Next Steps
 - Improve Yamaha parsing (Ctb2 NTR/NTT + chord-quality rules) for parity.
-- Align event timing (TS endTick differs slightly from Java).
