@@ -55,3 +55,12 @@ npm run tools:compare -- \
   --a "../fixtures/midi/java/jazzblues_simple_12bar.mid" \
   --b "../fixtures/midi/ts/jazzblues_simple_12bar.mid"
 ```
+
+Compare note-level alignment (pitch/duration/startTick):
+
+```bash
+cd web/app
+npm run tools:compare-notes -- \
+  --a "../fixtures/midi/java/jazzblues_simple_12bar.mid" \
+  --b "../fixtures/midi/ts/jazzblues_simple_12bar.mid"
+```

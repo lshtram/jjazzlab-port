@@ -1,6 +1,17 @@
+export type Ctb2Settings = {
+  ntr: number;
+  ntt: number;
+  bassOn: boolean;
+  chordRootUpper: number;
+  noteLow: number;
+  noteHigh: number;
+  rtr: number;
+};
+
 type CasmInfo = {
   channelMap: Map<number, number>;
   sourceChordByChannel: Map<number, number>;
+  ctb2ByChannel: Map<number, Ctb2Settings>;
 };
 
 class Reader {
@@ -41,6 +52,26 @@ class Reader {
   }
 }
 
+function readCtb2Subpart(reader: Reader): Ctb2Settings {
+  const ntr = reader.readUInt8();
+  const nttByte = reader.readUInt8();
+  const bassOn = (nttByte & 0x80) === 0x80;
+  const ntt = nttByte & 0x7f;
+  const chordRootUpper = reader.readUInt8();
+  const noteLow = reader.readUInt8();
+  const noteHigh = reader.readUInt8();
+  const rtr = reader.readUInt8();
+  return {
+    ntr,
+    ntt,
+    bassOn,
+    chordRootUpper,
+    noteLow,
+    noteHigh,
+    rtr,
+  };
+}
+
 function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean): void {
   const reader = new Reader(data);
   if (reader.remaining() < 20) {
@@ -65,10 +96,14 @@ function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean): void {
 
   if (isCtb2) {
     reader.skip(2); // middle low/high
-    reader.skip(6 * 3); // low/main/high subparts
+    reader.skip(6); // low
+    const main = readCtb2Subpart(reader);
+    info.ctb2ByChannel.set(srcChannel, main);
+    reader.skip(6); // high
     reader.skip(7); // trailing unknown bytes
   } else {
-    reader.skip(6); // main subpart
+    const main = readCtb2Subpart(reader);
+    info.ctb2ByChannel.set(srcChannel, main);
     const specialFeature = reader.readUInt8();
     if (specialFeature !== 0) {
       reader.skip(4);
@@ -125,6 +160,7 @@ export function parseCasmFromBuffer(buffer: Buffer): CasmInfo | null {
   const info: CasmInfo = {
     channelMap: new Map(),
     sourceChordByChannel: new Map(),
+    ctb2ByChannel: new Map(),
   };
 
   while (reader.remaining() >= 8) {

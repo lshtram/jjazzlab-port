@@ -14,6 +14,7 @@
 - Updated `web/fixtures/midi/README.md` with offline export steps.
   - TS harness applies CASM channel mapping and root-only chord transposition with chord-boundary splits.
   - MIDI note counts and end tick now match the Java baseline.
+  - Note-level pitch matching is still pending; new `tools:compare-notes` highlights diffs.
 
 ## Working Tree Snapshot
 - Modified: `JJazzLab/core/SongStructure/src/main/java/org/jjazz/songstructure/SongStructureImpl.java`
@@ -23,3 +24,4 @@
 
 ## Next Steps
 - Improve Yamaha parsing (Ctb2 NTR/NTT + chord-quality rules) for parity.
+  - Use `npm run tools:compare-notes` to track pitch alignment as rules are added.

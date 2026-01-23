@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tools:yamaha": "tsx tools/yamaha-to-midi.ts",
-    "tools:compare": "tsx tools/compare-midi.ts"
+    "tools:compare": "tsx tools/compare-midi.ts",
+    "tools:compare-notes": "tsx tools/compare-midi-notes.ts"
   },
   "dependencies": {
     "midi-file": "^1.2.4",

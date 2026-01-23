@@ -183,6 +183,7 @@ const { notes, totalTicks } = buildSongFromStylePart({
   ),
   channelMap: parsed.channelMap,
   sourceChordByChannel: parsed.sourceChordByChannel,
+  ctb2ByChannel: parsed.ctb2ByChannel,
 });
 
 const midi = buildMidiFile({

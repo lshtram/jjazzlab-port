@@ -17,6 +17,7 @@ type BuildSongOptions = {
   chordTimeline: ChordSegment[];
   channelMap: Map<number, number>;
   sourceChordByChannel: Map<number, number>;
+  ctb2ByChannel: Map<number, { noteLow: number; noteHigh: number }>;
 };
 
 export function buildSongFromStylePart(options: BuildSongOptions): {
@@ -32,6 +33,7 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     chordTimeline,
     channelMap,
     sourceChordByChannel,
+    ctb2ByChannel,
   } = options;
   const beatsPerBar = (timeSignature.numerator * 4) / timeSignature.denominator;
   const totalBeats = bars * beatsPerBar;
@@ -96,6 +98,17 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
         const transpose = isDrums(destChannel) ? 0 : targetRoot - sourceRoot;
         let pitch = note.pitch + transpose;
         pitch = Math.max(0, Math.min(127, pitch));
+
+        const ctb2 = ctb2ByChannel.get(note.channel);
+        if (ctb2) {
+          while (pitch > ctb2.noteHigh) {
+            pitch -= 12;
+          }
+          while (pitch < ctb2.noteLow) {
+            pitch += 12;
+          }
+          pitch = Math.max(0, Math.min(127, pitch));
+        }
 
         notes.push({
           channel: destChannel,
