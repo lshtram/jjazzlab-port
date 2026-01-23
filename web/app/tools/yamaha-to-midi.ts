@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildMidiFile, TimeSignature } from './lib/midi.js';
 import { buildSongFromStylePart } from './yamaha/buildSong.js';
+import type { ChordSegment } from './yamaha/buildSong.js';
 import { normalizeStylePartName, parseStyleFromBuffer } from './yamaha/parseStyle.js';
 
 type Args = {
@@ -86,6 +87,41 @@ function computeTempoMicroseconds(tempo?: number, fallback: number): number {
   return Math.round(60_000_000 / tempo);
 }
 
+function chordTonesForQuality(quality: string): number[] {
+  const normalized = quality.trim().toLowerCase();
+  if (normalized.startsWith('maj7') || normalized.startsWith('m7m') || normalized.includes('maj7')) {
+    return [0, 4, 7, 11];
+  }
+  if (normalized.startsWith('min7') || normalized.startsWith('m7')) {
+    return [0, 3, 7, 10];
+  }
+  if (normalized.startsWith('min') || normalized.startsWith('m')) {
+    return [0, 3, 7];
+  }
+  if (normalized.startsWith('dim7')) {
+    return [0, 3, 6, 9];
+  }
+  if (normalized.startsWith('dim')) {
+    return [0, 3, 6];
+  }
+  if (normalized.startsWith('aug') || normalized.startsWith('+')) {
+    return [0, 4, 8];
+  }
+  if (normalized.startsWith('sus4') || normalized.startsWith('sus')) {
+    return [0, 5, 7];
+  }
+  if (normalized.startsWith('7') || normalized.includes('7')) {
+    return [0, 4, 7, 10];
+  }
+  return [0, 4, 7];
+}
+
+function chordTonesForSymbol(symbol: string): number[] {
+  const match = symbol.match(/^([A-Ga-g])([#b]?)(.*)$/);
+  const quality = match?.[3] ?? '';
+  return chordTonesForQuality(quality);
+}
+
 function parseChordRoot(chord: string): number {
   const match = chord.match(/^([A-Ga-g])([#b]?)/);
   if (!match) {
@@ -111,7 +147,7 @@ function parseChordRoot(chord: string): number {
   return (root + 12) % 12;
 }
 
-function buildBluesChordTimeline(bars: number, ticksPerBar: number) {
+function buildBluesChordTimeline(bars: number, ticksPerBar: number): ChordSegment[] {
   const changes = [
     { bar: 0, chord: 'Bb7' },
     { bar: 4, chord: 'Eb7' },
@@ -133,17 +169,18 @@ function buildBluesChordTimeline(bars: number, ticksPerBar: number) {
     return chord;
   };
 
-  const segments: { startTick: number; endTick: number; root: number }[] = [];
+  const segments: ChordSegment[] = [];
   for (let bar = 0; bar < bars; bar += 1) {
     const chord = chordAtBar(bar);
     const root = parseChordRoot(chord);
     const startTick = bar * ticksPerBar;
     const endTick = startTick + ticksPerBar;
+    const tones = chordTonesForSymbol(chord);
     const last = segments[segments.length - 1];
     if (last && last.root === root) {
       last.endTick = endTick;
     } else {
-      segments.push({ startTick, endTick, root });
+      segments.push({ startTick, endTick, root, tones });
     }
   }
   return segments;
@@ -183,6 +220,7 @@ const { notes, totalTicks } = buildSongFromStylePart({
   ),
   channelMap: parsed.channelMap,
   sourceChordByChannel: parsed.sourceChordByChannel,
+  sourceChordTypeByChannel: parsed.sourceChordTypeByChannel,
   ctb2ByChannel: parsed.ctb2ByChannel,
 });
 

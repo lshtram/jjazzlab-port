@@ -8,9 +8,12 @@ export type Ctb2Settings = {
   rtr: number;
 };
 
+type SffType = 'SFF1' | 'SFF2' | null;
+
 type CasmInfo = {
   channelMap: Map<number, number>;
   sourceChordByChannel: Map<number, number>;
+  sourceChordTypeByChannel: Map<number, string>;
   ctb2ByChannel: Map<number, Ctb2Settings>;
 };
 
@@ -52,11 +55,72 @@ class Reader {
   }
 }
 
-function readCtb2Subpart(reader: Reader): Ctb2Settings {
+const yamChordNames = [
+  '1+2+5',
+  'sus4',
+  '1+5',
+  '1+8',
+  '7aug',
+  'Maj7aug',
+  '7(#9)',
+  '7(b13)',
+  '7(b9)',
+  '7(13)',
+  '7#11',
+  '7(9)',
+  '7b5',
+  '7sus4',
+  '7th',
+  'dim7',
+  'dim',
+  'minMaj7(9)',
+  'minMaj7',
+  'min7(11)',
+  'min7(9)',
+  'min(9)',
+  'm7b5',
+  'min7',
+  'min6',
+  'min',
+  'aug',
+  'Maj6(9)',
+  'Maj7(9)',
+  'Maj(9)',
+  'Maj7#11',
+  'Maj7',
+  'Maj6',
+  'Maj',
+];
+
+function mapSourceChordType(code: number): string | null {
+  if (code > 0x22) {
+    return null;
+  }
+  const index = code === 0x22 ? 2 : 0x21 - code;
+  return yamChordNames[index] ?? null;
+}
+
+function adaptNttForSff1(raw: number, bassOn: boolean): { ntt: number; bassOn: boolean } {
+  if (raw === 3) {
+    return { ntt: 1, bassOn: true };
+  }
+  if (raw === 4) {
+    return { ntt: 3, bassOn };
+  }
+  return { ntt: raw, bassOn };
+}
+
+function readCtb2Subpart(reader: Reader, sffType: SffType): Ctb2Settings {
   const ntr = reader.readUInt8();
   const nttByte = reader.readUInt8();
   const bassOn = (nttByte & 0x80) === 0x80;
-  const ntt = nttByte & 0x7f;
+  let ntt = nttByte & 0x7f;
+  let finalBassOn = bassOn;
+  if (ntr !== 2 && sffType === 'SFF1') {
+    const adapted = adaptNttForSff1(ntt, bassOn);
+    ntt = adapted.ntt;
+    finalBassOn = adapted.bassOn;
+  }
   const chordRootUpper = reader.readUInt8();
   const noteLow = reader.readUInt8();
   const noteHigh = reader.readUInt8();
@@ -64,7 +128,7 @@ function readCtb2Subpart(reader: Reader): Ctb2Settings {
   return {
     ntr,
     ntt,
-    bassOn,
+    bassOn: finalBassOn,
     chordRootUpper,
     noteLow,
     noteHigh,
@@ -72,7 +136,7 @@ function readCtb2Subpart(reader: Reader): Ctb2Settings {
   };
 }
 
-function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean): void {
+function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean, sffType: SffType): void {
   const reader = new Reader(data);
   if (reader.remaining() < 20) {
     return;
@@ -85,7 +149,8 @@ function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean): void {
   reader.skip(2); // muted notes
   reader.skip(5); // muted chords
   const sourceChordNote = reader.readUInt8();
-  reader.skip(1); // source chord type
+  const sourceChordType = reader.readUInt8();
+  const chordName = mapSourceChordType(sourceChordType);
 
   if (!info.channelMap.has(srcChannel)) {
     info.channelMap.set(srcChannel, destChannel);
@@ -93,16 +158,19 @@ function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean): void {
   if (!info.sourceChordByChannel.has(srcChannel)) {
     info.sourceChordByChannel.set(srcChannel, sourceChordNote);
   }
+  if (chordName && !info.sourceChordTypeByChannel.has(srcChannel)) {
+    info.sourceChordTypeByChannel.set(srcChannel, chordName);
+  }
 
   if (isCtb2) {
     reader.skip(2); // middle low/high
     reader.skip(6); // low
-    const main = readCtb2Subpart(reader);
+    const main = readCtb2Subpart(reader, sffType);
     info.ctb2ByChannel.set(srcChannel, main);
     reader.skip(6); // high
     reader.skip(7); // trailing unknown bytes
   } else {
-    const main = readCtb2Subpart(reader);
+    const main = readCtb2Subpart(reader, sffType);
     info.ctb2ByChannel.set(srcChannel, main);
     const specialFeature = reader.readUInt8();
     if (specialFeature !== 0) {
@@ -111,7 +179,7 @@ function parseCtabSection(data: Buffer, info: CasmInfo, isCtb2: boolean): void {
   }
 }
 
-function parseCsegSection(data: Buffer, info: CasmInfo): void {
+function parseCsegSection(data: Buffer, info: CasmInfo, sffType: SffType): void {
   const reader = new Reader(data);
   if (reader.remaining() < 8) {
     return;
@@ -134,14 +202,14 @@ function parseCsegSection(data: Buffer, info: CasmInfo): void {
     }
     const section = reader.readBytes(sectionSize);
     if (sectionName === 'Ctab') {
-      parseCtabSection(section, info, false);
+      parseCtabSection(section, info, false, sffType);
     } else if (sectionName === 'Ctb2') {
-      parseCtabSection(section, info, true);
+      parseCtabSection(section, info, true, sffType);
     }
   }
 }
 
-export function parseCasmFromBuffer(buffer: Buffer): CasmInfo | null {
+export function parseCasmFromBuffer(buffer: Buffer, sffType: SffType): CasmInfo | null {
   const casmIndex = buffer.indexOf('CASM');
   if (casmIndex === -1) {
     return null;
@@ -160,6 +228,7 @@ export function parseCasmFromBuffer(buffer: Buffer): CasmInfo | null {
   const info: CasmInfo = {
     channelMap: new Map(),
     sourceChordByChannel: new Map(),
+    sourceChordTypeByChannel: new Map(),
     ctb2ByChannel: new Map(),
   };
 
@@ -171,7 +240,7 @@ export function parseCasmFromBuffer(buffer: Buffer): CasmInfo | null {
     }
     const section = reader.readBytes(sectionSize);
     if (sectionName === 'CSEG') {
-      parseCsegSection(section, info);
+      parseCsegSection(section, info, sffType);
     }
   }
 

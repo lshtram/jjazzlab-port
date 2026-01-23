@@ -16,7 +16,9 @@ export type ParsedStyle = {
   parts: StylePart[];
   channelMap: Map<number, number>;
   sourceChordByChannel: Map<number, number>;
+  sourceChordTypeByChannel: Map<number, string>;
   ctb2ByChannel: Map<number, Ctb2Settings>;
+  sffType: 'SFF1' | 'SFF2' | null;
 };
 
 type MidiEvent = Record<string, unknown> & {
@@ -39,9 +41,20 @@ export function parseStyleFromBuffer(buffer: Buffer): ParsedStyle {
   const track = midi.tracks[0] ?? [];
   const tempo = getTempoFromTrack(track) ?? 500000;
   const timeSignature = getTimeSignatureFromTrack(track);
-  const casmInfo = parseCasmFromBuffer(buffer);
+  let sffType: 'SFF1' | 'SFF2' | null = null;
+  for (const event of track as MidiEvent[]) {
+    if (event.meta && event.type === 'marker' && typeof event.text === 'string') {
+      if (event.text === 'SFF1' || event.text === 'SFF2') {
+        sffType = event.text as 'SFF1' | 'SFF2';
+        break;
+      }
+    }
+  }
+
+  const casmInfo = parseCasmFromBuffer(buffer, sffType);
   const channelMap = casmInfo?.channelMap ?? new Map<number, number>();
   const sourceChordByChannel = casmInfo?.sourceChordByChannel ?? new Map<number, number>();
+  const sourceChordTypeByChannel = casmInfo?.sourceChordTypeByChannel ?? new Map<number, string>();
   const ctb2ByChannel = casmInfo?.ctb2ByChannel ?? new Map<number, Ctb2Settings>();
 
   const parts: StylePart[] = [];
@@ -137,6 +150,8 @@ export function parseStyleFromBuffer(buffer: Buffer): ParsedStyle {
     parts,
     channelMap,
     sourceChordByChannel,
+    sourceChordTypeByChannel,
     ctb2ByChannel,
+    sffType,
   };
 }

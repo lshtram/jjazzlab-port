@@ -12,16 +12,17 @@
 - Added Vite + React + TypeScript scaffold at `web/app` with TS harness tools.
 - Added MIDI fixtures `web/fixtures/midi/java/jazzblues_simple_12bar.mid` and `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`.
 - Updated `web/fixtures/midi/README.md` with offline export steps.
-  - TS harness applies CASM channel mapping and root-only chord transposition with chord-boundary splits.
-  - MIDI note counts and end tick now match the Java baseline.
-  - Note-level pitch matching is still pending; new `tools:compare-notes` highlights diffs.
+  - TS harness now applies CASM channel mapping, chord-mode/melody-mode fitting, and chord-boundary splits.
+  - MIDI note counts, end tick, and note-level pitches now match the Java baseline for the JazzBluesSimple fixture.
 
 ## Working Tree Snapshot
 - Modified: `JJazzLab/core/SongStructure/src/main/java/org/jjazz/songstructure/SongStructureImpl.java`
 - Added: `JJazzLab/app/Test/src/main/java/org/jjazz/test/ExportYamahaMidiCli.java`
-- Untracked: `web/` (includes Vite app + fixtures), `.m2/`, `.vscode/`
+- Modified: `web/app/tools/yamaha/buildSong.ts`, `web/app/tools/yamaha-to-midi.ts`
+- Modified: `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`
+- Untracked: `web/fixtures/styles/`, `web/tmp/`, `.m2/`, `.vscode/`
 - Pre-existing unrelated change: `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml`
 
 ## Next Steps
-- Improve Yamaha parsing (Ctb2 NTR/NTT + chord-quality rules) for parity.
-  - Use `npm run tools:compare-notes` to track pitch alignment as rules are added.
+- Validate parity against additional Yamaha styles and parts (introductions/endings).
+- Decide whether to implement retrigger rule handling (RTR) for long notes across chord changes.
