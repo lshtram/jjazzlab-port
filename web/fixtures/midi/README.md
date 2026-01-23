@@ -44,7 +44,8 @@ npm run tools:yamaha -- \
   --style "../fixtures/styles/yamaha/jjazzlab_user_styles/jjazzlab_user_styles/Swing&Jazz/JazzBluesSimple.S740.sty" \
   --out "../fixtures/midi/ts/jazzblues_simple_12bar.mid" \
   --bars 12 \
-  --part "Main A"
+  --part "Main A" \
+  --chart "Bb7 | Bb7 | Bb7 | Bb7 | Eb7 | Eb7 | Bb7 | Bb7 | F7 | Eb7 | Bb7 | F7"
 ```
 
 Compare summary stats against the Java export:

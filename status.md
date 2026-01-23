@@ -14,15 +14,20 @@
 - Updated `web/fixtures/midi/README.md` with offline export steps.
   - TS harness now applies CASM channel mapping, chord-mode/melody-mode fitting, and chord-boundary splits.
   - MIDI note counts, end tick, and note-level pitches now match the Java baseline for the JazzBluesSimple fixture.
+- Added environment-agnostic core modules under `web/app/src/core` (MIDI, Yamaha parsing, song parsing, render pipeline).
+- Added SoundFont synth playback (`soundfont-player`) plus a minimal React harness to load a style, enter a chord chart, play/stop, and export MIDI.
 
 ## Working Tree Snapshot
 - Modified: `JJazzLab/core/SongStructure/src/main/java/org/jjazz/songstructure/SongStructureImpl.java`
 - Added: `JJazzLab/app/Test/src/main/java/org/jjazz/test/ExportYamahaMidiCli.java`
-- Modified: `web/app/tools/yamaha/buildSong.ts`, `web/app/tools/yamaha-to-midi.ts`
-- Modified: `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`
+- Modified: `web/app/src` (core modules, audio synth, App harness, styles)
+- Modified: `web/app/tools/yamaha-to-midi.ts`, `web/app/tools/compare-midi.ts`
+- Modified: `web/app/package.json`, `web/app/package-lock.json`
+- Modified: `web/fixtures/midi/README.md`, `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`
 - Untracked: `web/fixtures/styles/`, `web/tmp/`, `.m2/`, `.vscode/`
 - Pre-existing unrelated change: `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml`
 
 ## Next Steps
 - Validate parity against additional Yamaha styles and parts (introductions/endings).
 - Decide whether to implement retrigger rule handling (RTR) for long notes across chord changes.
+- Capture program changes within parts (if any) so MIDI export mirrors style changes inside a section.

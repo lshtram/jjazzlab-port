@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { collectNoteEvents, parseMidiData } from './lib/midi.js';
+import { collectNoteEvents, parseMidiData } from '../src/core/midi.js';
 
 type Summary = {
   ticksPerBeat: number;
@@ -28,7 +28,7 @@ function parseArgs(argv: string[]): { a?: string; b?: string } {
   return args;
 }
 
-function summarize(buffer: Buffer): Summary {
+function summarize(buffer: Uint8Array): Summary {
   const midi = parseMidiData(buffer);
   const ticksPerBeat = midi.header.ticksPerBeat ?? 480;
 
