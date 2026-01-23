@@ -40,7 +40,12 @@ export class SoundfontSynth {
         })
       );
     }
-    await Promise.all(promises);
+    try {
+      await Promise.all(promises);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Soundfont load failed: ${message}`);
+    }
   }
 
   play(rendered: RenderedSong, startDelay = 0.08): PlaybackHandle {

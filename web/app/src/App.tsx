@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { renderStyleToMidi, renderStyleToNotes } from './core/render.js';
 import { parseStyleFromBuffer } from './core/yamaha/parseStyle.js';
+import { BasicSynth } from './audio/basicSynth.js';
 import { SoundfontSynth } from './audio/soundfont.js';
 import './App.css';
 
@@ -10,6 +11,11 @@ const DEFAULT_CHART =
 const SOUND_FONTS = [
   { value: 'MusyngKite', label: 'MusyngKite (HQ, large)' },
   { value: 'FluidR3_GM', label: 'FluidR3 (lighter)' },
+];
+
+const PLAYBACK_ENGINES = [
+  { value: 'basic', label: 'Basic Synth (offline demo)' },
+  { value: 'soundfont', label: 'Soundfont Player' },
 ];
 
 function toPositiveNumber(value: string): number | undefined {
@@ -32,12 +38,14 @@ function App() {
   const [chart, setChart] = useState<string>(DEFAULT_CHART);
   const [bars, setBars] = useState<string>('12');
   const [tempo, setTempo] = useState<string>('120');
+  const [engine, setEngine] = useState<string>('basic');
   const [soundfont, setSoundfont] = useState<string>('MusyngKite');
   const [status, setStatus] = useState<string>('Load a Yamaha style to begin.');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const audioRef = useRef<AudioContext | null>(null);
-  const synthRef = useRef<SoundfontSynth | null>(null);
+  const basicSynthRef = useRef<BasicSynth | null>(null);
+  const soundfontSynthRef = useRef<SoundfontSynth | null>(null);
   const soundfontRef = useRef<string>('MusyngKite');
   const playbackRef = useRef<{ stop: () => void } | null>(null);
 
@@ -91,14 +99,21 @@ function App() {
         await audio.resume();
       }
 
-      if (!synthRef.current || soundfontRef.current !== soundfont) {
-        synthRef.current = new SoundfontSynth(audio, { soundfont });
-        soundfontRef.current = soundfont;
-      }
-
       playbackRef.current?.stop();
-      await synthRef.current.prepare(rendered.programsByChannel);
-      playbackRef.current = synthRef.current.play(rendered);
+      if (engine === 'soundfont') {
+        if (!soundfontSynthRef.current || soundfontRef.current !== soundfont) {
+          soundfontSynthRef.current = new SoundfontSynth(audio, { soundfont });
+          soundfontRef.current = soundfont;
+        }
+        await soundfontSynthRef.current.prepare(rendered.programsByChannel);
+        playbackRef.current = soundfontSynthRef.current.play(rendered);
+      } else {
+        if (!basicSynthRef.current) {
+          basicSynthRef.current = new BasicSynth(audio);
+        }
+        await basicSynthRef.current.prepare(rendered.programsByChannel);
+        playbackRef.current = basicSynthRef.current.play(rendered);
+      }
 
       setStatus(
         `Playing ${rendered.notes.length} notes at ${Math.round(
@@ -109,6 +124,17 @@ function App() {
       setStatus(`Playback failed: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleUnlockAudio = async () => {
+    const audio = audioRef.current ?? new AudioContext();
+    audioRef.current = audio;
+    if (audio.state === 'suspended') {
+      await audio.resume();
+      setStatus('Audio unlocked. Ready to play.');
+    } else {
+      setStatus('Audio already unlocked.');
     }
   };
 
@@ -214,19 +240,35 @@ function App() {
           </label>
 
           <label className="field">
-            <span>SoundFont</span>
-            <select value={soundfont} onChange={(event) => setSoundfont(event.target.value)}>
-              {SOUND_FONTS.map((entry) => (
+            <span>Playback Engine</span>
+            <select value={engine} onChange={(event) => setEngine(event.target.value)}>
+              {PLAYBACK_ENGINES.map((entry) => (
                 <option key={entry.value} value={entry.value}>
                   {entry.label}
                 </option>
               ))}
             </select>
           </label>
+
+          {engine === 'soundfont' ? (
+            <label className="field">
+              <span>SoundFont Pack</span>
+              <select value={soundfont} onChange={(event) => setSoundfont(event.target.value)}>
+                {SOUND_FONTS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
       </section>
 
       <section className="panel actions">
+        <button onClick={handleUnlockAudio} disabled={isLoading}>
+          Unlock Audio
+        </button>
         <button onClick={handlePlay} disabled={!hasStyle || isLoading}>
           {isLoading ? 'Preparing…' : 'Play'}
         </button>
