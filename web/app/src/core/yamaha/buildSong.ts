@@ -6,6 +6,32 @@ import type { Ctb2Settings } from './parseCasm.js';
 
 export type { ChordSegment } from '../song.js';
 
+export type NoteMapping = {
+  sourceChannel: number;
+  destChannel: number;
+  sourcePitch: number;
+  destPitch: number;
+  sourceRelPitch: number;
+  destRelPitch: number;
+  sourceDegree: DegreeName;
+  destDegree: DegreeName;
+  mapping: 'chord' | 'melody' | 'root';
+  startTick: number;
+  duration: number;
+  segment: { startTick: number; endTick: number; symbol: string };
+  sourceRoot: number;
+  targetRoot: number;
+  ctb2?: {
+    ntr: number;
+    ntt: number;
+    bassOn: boolean;
+    chordRootUpper: number;
+    noteLow: number;
+    noteHigh: number;
+    rtr: number;
+  };
+};
+
 function getLowerPitch(referencePitch: number, relPitch: number, acceptEquals: boolean): number {
   const refPc = normalizePitchClass(referencePitch);
   let pitch = Math.floor(referencePitch / 12) * 12 + relPitch;
@@ -424,6 +450,7 @@ type BuildSongOptions = {
   sourceChordByChannel: Map<number, number>;
   sourceChordTypeByChannel: Map<number, string>;
   ctb2ByChannel: Map<number, Ctb2Settings>;
+  onNote?: (info: NoteMapping) => void;
 };
 
 type SourceChordData = {
@@ -450,6 +477,7 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     sourceChordByChannel,
     sourceChordTypeByChannel,
     ctb2ByChannel,
+    onNote,
   } = options;
   const beatsPerBar = (timeSignature.numerator * 4) / timeSignature.denominator;
   const totalBeats = bars * beatsPerBar;
@@ -624,23 +652,29 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
         const sourceRoot = normalizePitchClass(sourceChordByChannel.get(note.channel) ?? 0);
 
         let pitch = note.pitch;
+        const data = sourceChordData.get(note.channel);
+        const sourceProfile = data?.profile ?? buildChordProfile('');
+        const srcRelPitch = normalizePitchClass(note.pitch - sourceRoot);
+        const srcDegree = degreeMostProbable(srcRelPitch, sourceProfile.isMajor);
+        const destProfile = getDestProfile(segment);
+        let destDegree: DegreeName = srcDegree;
+        let mapping: 'chord' | 'melody' | 'root' = 'root';
+
         if (!isDrums(destChannel)) {
           const isChordMode = ctb2 !== undefined && (ctb2.ntr === 1 || ctb2.ntr === 2);
           const isMelodyMode = ctb2 !== undefined && ctb2.ntr === 0 && ctb2.ntt !== 0;
 
           if (isChordMode) {
-            const mapping = getChordModeMapping(note.channel, segment);
-            const mapped = mapping?.get(note.pitch);
+            mapping = 'chord';
+            destDegree = fitDegreeAdvanced(destProfile, srcDegree);
+            const chordMapping = getChordModeMapping(note.channel, segment);
+            const mapped = chordMapping?.get(note.pitch);
             if (mapped !== undefined) {
               pitch = mapped;
             }
           } else if (isMelodyMode) {
-            const data = sourceChordData.get(note.channel);
-            const sourceProfile = data?.profile ?? buildChordProfile('');
-            const destProfile = getDestProfile(segment);
-            const srcRelPitch = normalizePitchClass(note.pitch - sourceRoot);
-            const srcDegree = degreeMostProbable(srcRelPitch, sourceProfile.isMajor);
-            const destDegree = fitDegreeAdvanced(destProfile, srcDegree);
+            mapping = 'melody';
+            destDegree = fitDegreeAdvanced(destProfile, srcDegree);
             const destRelPitch = normalizePitchClass(targetRoot + DEGREE_DEFS[destDegree].pitch);
             const rootDelta = normalizePitchClass(targetRoot - sourceRoot);
             const basePitch = note.pitch + rootDelta;
@@ -665,6 +699,11 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
         }
         pitch = Math.max(0, Math.min(127, pitch));
 
+        const destRelPitch = normalizePitchClass(pitch - targetRoot);
+        if (mapping === 'root') {
+          destDegree = degreeMostProbable(destRelPitch, destProfile.isMajor);
+        }
+
         notes.push({
           channel: destChannel,
           pitch,
@@ -672,6 +711,39 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
           startTick: segmentStart,
           duration,
         });
+        if (onNote) {
+          onNote({
+            sourceChannel: note.channel,
+            destChannel,
+            sourcePitch: note.pitch,
+            destPitch: pitch,
+            sourceRelPitch: srcRelPitch,
+            destRelPitch,
+            sourceDegree: srcDegree,
+            destDegree,
+            mapping,
+            startTick: segmentStart,
+            duration,
+            segment: {
+              startTick: segment.startTick,
+              endTick: segment.endTick,
+              symbol: segment.symbol,
+            },
+            sourceRoot,
+            targetRoot,
+            ctb2: ctb2
+              ? {
+                  ntr: ctb2.ntr,
+                  ntt: ctb2.ntt,
+                  bassOn: ctb2.bassOn,
+                  chordRootUpper: ctb2.chordRootUpper,
+                  noteLow: ctb2.noteLow,
+                  noteHigh: ctb2.noteHigh,
+                  rtr: ctb2.rtr,
+                }
+              : undefined,
+          });
+        }
         segmentStart = stop;
       }
     }

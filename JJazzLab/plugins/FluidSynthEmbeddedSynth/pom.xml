@@ -12,6 +12,9 @@
     <name>FluidSynthEmbeddedSynth</name>
     <packaging>nbm</packaging>
     
+    <properties>
+        <fluidsynthjava.version>0.3.1</fluidsynthjava.version>
+    </properties>
     
     <build>
         <plugins>
@@ -68,7 +71,7 @@
         <dependency> 
             <groupId>org.jjazzlab</groupId> 
             <artifactId>fluidsynthjava</artifactId> 
-            <version>0.3.2</version>    <!-- 0.3.2 first version to use JDK23 -->
+            <version>${fluidsynthjava.version}</version>
         </dependency>                 
         <dependency> 
             <groupId>org.jjazzlab.core</groupId> 
@@ -131,5 +134,17 @@
             <version>${netbeans.version}</version>  
         </dependency>
     </dependencies>
-</project>
 
+    <profiles>
+        <profile>
+            <id>fluidsynthjava-jdk23</id>
+            <activation>
+                <jdk>[23,)</jdk>
+            </activation>
+            <properties>
+                <!-- 0.3.2 first version to use JDK 23 -->
+                <fluidsynthjava.version>0.3.2</fluidsynthjava.version>
+            </properties>
+        </profile>
+    </profiles>
+</project>

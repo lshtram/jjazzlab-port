@@ -3,6 +3,7 @@ import type { NoteEvent, ProgramChangeEvent, TimeSignature } from './midi.js';
 import { buildChordTimeline, parseChordChart, ticksPerBarFromTimeSignature } from './song.js';
 import type { ChordSegment } from './song.js';
 import { buildSongFromStylePart } from './yamaha/buildSong.js';
+import type { NoteMapping } from './yamaha/buildSong.js';
 import { normalizeStylePartName, parseStyleFromBuffer } from './yamaha/parseStyle.js';
 import type { ProgramChange } from './yamaha/parseStyle.js';
 
@@ -13,6 +14,7 @@ export type RenderOptions = {
   chordTimeline?: ChordSegment[];
   tempo?: number;
   outputTicksPerBeat?: number;
+  onNote?: (info: NoteMapping) => void;
 };
 
 export type RenderedSong = {
@@ -76,6 +78,7 @@ export function renderStyleToNotes(styleData: Uint8Array, options: RenderOptions
     sourceChordByChannel: casmInfo.sourceChordByChannel,
     sourceChordTypeByChannel: casmInfo.sourceChordTypeByChannel,
     ctb2ByChannel: casmInfo.ctb2ByChannel,
+    onNote: options.onNote,
   });
 
   const programsByChannel = new Map<number, ProgramChange>();
