@@ -7,27 +7,53 @@
 - Note: `npm install` in `web/app` ran before the Node upgrade; re-run to ensure native deps align with Node 20.
 
 ## Repo Changes
-- Added a Java CLI to export a Yamaha style + 12-bar blues to MIDI.
-- Added a headless flag to skip adapted rhythm generation during CLI export.
-- Added Vite + React + TypeScript scaffold at `web/app` with TS harness tools.
-- Added MIDI fixtures `web/fixtures/midi/java/jazzblues_simple_12bar.mid` and `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`.
-- Updated `web/fixtures/midi/README.md` with offline export steps.
-  - TS harness now applies CASM channel mapping, chord-mode/melody-mode fitting, and chord-boundary splits.
-  - MIDI note counts, end tick, and note-level pitches now match the Java baseline for the JazzBluesSimple fixture.
-- Added environment-agnostic core modules under `web/app/src/core` (MIDI, Yamaha parsing, song parsing, render pipeline).
-- Added SoundFont synth playback (`soundfont-player`) plus a minimal React harness to load a style, enter a chord chart, play/stop, and export MIDI.
+- Yamaha CASM parsing now tracked per-style-part (CSEG/Sdec) with CNTT overrides, so each style part uses correct channel maps.
+- Added chord symbol tracking in chord timeline and new degree-aware mapping helpers for melody/chord adaptation.
+- Updated core render pipeline to pull CASM data per part (no more global CASM assumptions).
+- Expanded harmony chord-tone parsing for Yamaha chord types and 9/11/13 extensions.
+- Generated additional MIDI fixtures:
+  - `web/fixtures/midi/java/acoustic_jazz1_12bar.mid`
+  - `web/fixtures/midi/java/jazz_samba_12bar.mid`
+  - `web/fixtures/midi/java/rocknroll_12bar.mid`
+  - `web/fixtures/midi/ts/acoustic_jazz1_12bar.mid`
+  - `web/fixtures/midi/ts/jazz_samba_12bar.mid`
+  - `web/fixtures/midi/ts/rocknroll_12bar.mid`
+- Built audio renders (untracked) via FluidSynth:
+  - `web/tmp/audio/acoustic_jazz1_12bar.wav`
+  - `web/tmp/audio/jazzblues_simple_12bar.wav`
+  - `web/tmp/audio/jazz_samba_12bar.wav`
+
+## Validation
+- `npm run build` in `web/app` passes.
+- Java vs TS MIDI parity:
+  - `acoustic_jazz1_12bar`: mismatches=0
+  - `jazzblues_simple_12bar`: mismatches=0
+  - `jazz_samba_12bar`: mismatches=176 (mostly channels 11/13)
+  - `rocknroll_12bar`: mismatches=114 (channels 10–13, +1 semitone deltas)
+- FluidSynth renders are non-silent:
+  - AcousticJazz1: ~22.89s, RMS ~581
+  - JazzBluesSimple: ~31.17s, RMS ~1314
+  - JazzSamba: ~28.85s, RMS ~792
+  - Warning during render: missing instrument on channel 8 (bank=127 prog=32) fallback to bank 0.
 
 ## Working Tree Snapshot
-- Modified: `JJazzLab/core/SongStructure/src/main/java/org/jjazz/songstructure/SongStructureImpl.java`
-- Added: `JJazzLab/app/Test/src/main/java/org/jjazz/test/ExportYamahaMidiCli.java`
-- Modified: `web/app/src` (core modules, audio synth, App harness, styles)
-- Modified: `web/app/tools/yamaha-to-midi.ts`, `web/app/tools/compare-midi.ts`
-- Modified: `web/app/package.json`, `web/app/package-lock.json`
-- Modified: `web/fixtures/midi/README.md`, `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`
-- Untracked: `web/fixtures/styles/`, `web/tmp/`, `.m2/`, `.vscode/`
-- Pre-existing unrelated change: `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml`
+- Modified: `web/app/src/core/harmony.ts`
+- Modified: `web/app/src/core/render.ts`
+- Modified: `web/app/src/core/song.ts`
+- Modified: `web/app/src/core/yamaha/buildSong.ts`
+- Modified: `web/app/src/core/yamaha/parseCasm.ts`
+- Modified: `web/app/src/core/yamaha/parseStyle.ts`
+- Modified: `web/fixtures/midi/ts/acoustic_jazz1_12bar.mid`
+- Modified: `web/fixtures/midi/ts/jazz_samba_12bar.mid`
+- Modified: `web/fixtures/midi/ts/rocknroll_12bar.mid`
+- Modified: `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml` (pre-existing unrelated change)
+- Untracked: `web/fixtures/styles/`, `web/tmp/`, `web/app/tmp/`, `.m2/`, `.vscode/`
+
+## Notes
+- Java export for `JazzGtrTrio184 9K.s460.sty` fails (empty Ending B part). Skipped for now.
+- Remaining parity deltas likely tied to chord-degree mapping for ROOT_TRANS+MELODY and CHORD handling.
 
 ## Next Steps
-- Validate parity against additional Yamaha styles and parts (introductions/endings).
-- Decide whether to implement retrigger rule handling (RTR) for long notes across chord changes.
-- Capture program changes within parts (if any) so MIDI export mirrors style changes inside a section.
+- Investigate RocknRoll/JazzSamba mismatches by tracing degree mapping (ROOT_TRANS+MELODY) against Java `fitDegreeAdvanced` behavior.
+- Add a small diagnostic harness (or reuse `web/app/tmp/*`) to dump per-note source degree → dest degree mapping for mismatched channels.
+- Once parity holds, render additional audio samples (and optionally export short WAVs for review).

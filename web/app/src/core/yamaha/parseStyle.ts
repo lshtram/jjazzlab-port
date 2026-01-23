@@ -1,7 +1,7 @@
 import { parseMidiData, getTempoFromTrack, getTimeSignatureFromTrack } from '../midi.js';
 import type { NoteEvent } from '../midi.js';
 import { parseCasmFromBuffer } from './parseCasm.js';
-import type { Ctb2Settings } from './parseCasm.js';
+import type { CasmByPart, CasmInfo, Ctb2Settings } from './parseCasm.js';
 
 export type ProgramChange = {
   program: number;
@@ -23,10 +23,8 @@ export type ParsedStyle = {
   tempo: number;
   timeSignature: { numerator: number; denominator: number } | null;
   parts: StylePart[];
-  channelMap: Map<number, number>;
-  sourceChordByChannel: Map<number, number>;
-  sourceChordTypeByChannel: Map<number, string>;
-  ctb2ByChannel: Map<number, Ctb2Settings>;
+  casmByPart: CasmByPart;
+  defaultCasmInfo: CasmInfo;
   sffType: 'SFF1' | 'SFF2' | null;
 };
 
@@ -63,11 +61,16 @@ export function parseStyleFromBuffer(buffer: Uint8Array): ParsedStyle {
     }
   }
 
-  const casmInfo = parseCasmFromBuffer(buffer, sffType);
-  const channelMap = casmInfo?.channelMap ?? new Map<number, number>();
-  const sourceChordByChannel = casmInfo?.sourceChordByChannel ?? new Map<number, number>();
-  const sourceChordTypeByChannel = casmInfo?.sourceChordTypeByChannel ?? new Map<number, string>();
-  const ctb2ByChannel = casmInfo?.ctb2ByChannel ?? new Map<number, Ctb2Settings>();
+  const casmByPart = parseCasmFromBuffer(buffer, sffType) ?? new Map<string, CasmInfo>();
+  const defaultCasmInfo =
+    casmByPart.values().next().value ??
+    ({
+      channelMap: new Map<number, number>(),
+      sourceChordByChannel: new Map<number, number>(),
+      sourceChordTypeByChannel: new Map<number, string>(),
+      ctb2ByChannel: new Map<number, Ctb2Settings>(),
+      cnttByChannel: new Map<number, { ntt: number; bassOn: boolean }>(),
+    } as CasmInfo);
 
   const parts: StylePart[] = [];
   let currentPart: StylePart | null = null;
@@ -197,10 +200,8 @@ export function parseStyleFromBuffer(buffer: Uint8Array): ParsedStyle {
     tempo,
     timeSignature,
     parts,
-    channelMap,
-    sourceChordByChannel,
-    sourceChordTypeByChannel,
-    ctb2ByChannel,
+    casmByPart,
+    defaultCasmInfo,
     sffType,
   };
 }

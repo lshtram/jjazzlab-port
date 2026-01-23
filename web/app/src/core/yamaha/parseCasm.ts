@@ -10,12 +10,15 @@ export type Ctb2Settings = {
 
 type SffType = 'SFF1' | 'SFF2' | null;
 
-type CasmInfo = {
+export type CasmInfo = {
   channelMap: Map<number, number>;
   sourceChordByChannel: Map<number, number>;
   sourceChordTypeByChannel: Map<number, string>;
   ctb2ByChannel: Map<number, Ctb2Settings>;
+  cnttByChannel: Map<number, { ntt: number; bassOn: boolean }>;
 };
+
+export type CasmByPart = Map<string, CasmInfo>;
 
 class Reader {
   private offset = 0;
@@ -182,13 +185,9 @@ function parseCtabSection(data: Uint8Array, info: CasmInfo, isCtb2: boolean, sff
   const sourceChordType = reader.readUInt8();
   const chordName = mapSourceChordType(sourceChordType);
 
-  if (!info.channelMap.has(srcChannel)) {
-    info.channelMap.set(srcChannel, destChannel);
-  }
-  if (!info.sourceChordByChannel.has(srcChannel)) {
-    info.sourceChordByChannel.set(srcChannel, sourceChordNote);
-  }
-  if (chordName && !info.sourceChordTypeByChannel.has(srcChannel)) {
+  info.channelMap.set(srcChannel, destChannel);
+  info.sourceChordByChannel.set(srcChannel, sourceChordNote);
+  if (chordName) {
     info.sourceChordTypeByChannel.set(srcChannel, chordName);
   }
 
@@ -209,7 +208,38 @@ function parseCtabSection(data: Uint8Array, info: CasmInfo, isCtb2: boolean, sff
   }
 }
 
-function parseCsegSection(data: Uint8Array, info: CasmInfo, sffType: SffType): void {
+function normalizePartName(value: string): string {
+  return value.trim().replace(/\s+/g, '_').toLowerCase();
+}
+
+function createCasmInfo(): CasmInfo {
+  return {
+    channelMap: new Map(),
+    sourceChordByChannel: new Map(),
+    sourceChordTypeByChannel: new Map(),
+    ctb2ByChannel: new Map(),
+    cnttByChannel: new Map(),
+  };
+}
+
+function getCasmInfosForParts(infoByPart: CasmByPart, partNames: string[]): CasmInfo[] {
+  const infos: CasmInfo[] = [];
+  for (const name of partNames) {
+    const id = normalizePartName(name);
+    if (!id) {
+      continue;
+    }
+    let info = infoByPart.get(id);
+    if (!info) {
+      info = createCasmInfo();
+      infoByPart.set(id, info);
+    }
+    infos.push(info);
+  }
+  return infos;
+}
+
+function parseCsegSection(data: Uint8Array, infoByPart: CasmByPart, sffType: SffType): void {
   const reader = new Reader(data);
   if (reader.remaining() < 8) {
     return;
@@ -221,7 +251,15 @@ function parseCsegSection(data: Uint8Array, info: CasmInfo, sffType: SffType): v
   }
 
   const sdecSize = reader.readUInt32();
-  reader.skip(sdecSize);
+  const sdecData = reader.readBytes(sdecSize);
+  const sdecText = Array.from(sdecData, (byte) => String.fromCharCode(byte))
+    .join('')
+    .replace(/\0/g, '');
+  const partNames = sdecText.split(',').map((entry) => entry.trim()).filter(Boolean);
+  const infos = getCasmInfosForParts(infoByPart, partNames);
+  if (infos.length === 0) {
+    return;
+  }
 
   while (reader.remaining() >= 8) {
     const sectionName = reader.readString(4);
@@ -232,14 +270,34 @@ function parseCsegSection(data: Uint8Array, info: CasmInfo, sffType: SffType): v
     }
     const section = reader.readBytes(sectionSize);
     if (sectionName === 'Ctab') {
-      parseCtabSection(section, info, false, sffType);
+      for (const info of infos) {
+        parseCtabSection(section, info, false, sffType);
+      }
     } else if (sectionName === 'Ctb2') {
-      parseCtabSection(section, info, true, sffType);
+      for (const info of infos) {
+        parseCtabSection(section, info, true, sffType);
+      }
+    } else if (sectionName === 'Cntt') {
+      for (const info of infos) {
+        parseCnttSection(section, info);
+      }
     }
   }
 }
 
-export function parseCasmFromBuffer(buffer: Uint8Array, sffType: SffType): CasmInfo | null {
+function parseCnttSection(data: Uint8Array, info: CasmInfo): void {
+  if (data.length < 2) {
+    return;
+  }
+  const reader = new Reader(data);
+  const channel = reader.readUInt8();
+  const nttByte = reader.readUInt8();
+  const bassOn = (nttByte & 0x80) === 0x80;
+  const ntt = nttByte & 0x7f;
+  info.cnttByChannel.set(channel, { ntt, bassOn });
+}
+
+export function parseCasmFromBuffer(buffer: Uint8Array, sffType: SffType): CasmByPart | null {
   const casmIndex = indexOfAscii(buffer, 'CASM');
   if (casmIndex === -1) {
     return null;
@@ -256,12 +314,7 @@ export function parseCasmFromBuffer(buffer: Uint8Array, sffType: SffType): CasmI
   const casmData = buffer.subarray(casmStart, casmEnd);
   const reader = new Reader(casmData);
 
-  const info: CasmInfo = {
-    channelMap: new Map(),
-    sourceChordByChannel: new Map(),
-    sourceChordTypeByChannel: new Map(),
-    ctb2ByChannel: new Map(),
-  };
+  const infoByPart: CasmByPart = new Map();
 
   while (reader.remaining() >= 8) {
     const sectionName = reader.readString(4);
@@ -271,9 +324,20 @@ export function parseCasmFromBuffer(buffer: Uint8Array, sffType: SffType): CasmI
     }
     const section = reader.readBytes(sectionSize);
     if (sectionName === 'CSEG') {
-      parseCsegSection(section, info, sffType);
+      parseCsegSection(section, infoByPart, sffType);
     }
   }
 
-  return info;
+  for (const info of infoByPart.values()) {
+    for (const [channel, cntt] of info.cnttByChannel.entries()) {
+      const ctb2 = info.ctb2ByChannel.get(channel);
+      if (!ctb2) {
+        continue;
+      }
+      ctb2.ntt = cntt.ntt;
+      ctb2.bassOn = cntt.bassOn;
+    }
+  }
+
+  return infoByPart;
 }

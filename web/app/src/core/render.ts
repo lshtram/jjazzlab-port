@@ -39,6 +39,7 @@ export function renderStyleToNotes(styleData: Uint8Array, options: RenderOptions
     const available = parsed.parts.map((item) => item.marker).join(', ');
     throw new Error(`Style part "${options.part}" not found. Available markers: ${available}`);
   }
+  const casmInfo = parsed.casmByPart.get(partId) ?? parsed.defaultCasmInfo;
 
   const timeSignature: TimeSignature = parsed.timeSignature ?? { numerator: 4, denominator: 4 };
   const outputTicksPerBeat = options.outputTicksPerBeat ?? 960;
@@ -71,15 +72,15 @@ export function renderStyleToNotes(styleData: Uint8Array, options: RenderOptions
     timeSignature,
     part,
     chordTimeline,
-    channelMap: parsed.channelMap,
-    sourceChordByChannel: parsed.sourceChordByChannel,
-    sourceChordTypeByChannel: parsed.sourceChordTypeByChannel,
-    ctb2ByChannel: parsed.ctb2ByChannel,
+    channelMap: casmInfo.channelMap,
+    sourceChordByChannel: casmInfo.sourceChordByChannel,
+    sourceChordTypeByChannel: casmInfo.sourceChordTypeByChannel,
+    ctb2ByChannel: casmInfo.ctb2ByChannel,
   });
 
   const programsByChannel = new Map<number, ProgramChange>();
   for (const [srcChannel, change] of part.programsByChannel.entries()) {
-    const destChannel = parsed.channelMap.get(srcChannel) ?? srcChannel;
+    const destChannel = casmInfo.channelMap.get(srcChannel) ?? srcChannel;
     programsByChannel.set(destChannel, change);
   }
 

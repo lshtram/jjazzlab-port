@@ -6,11 +6,6 @@ import type { Ctb2Settings } from './parseCasm.js';
 
 export type { ChordSegment } from '../song.js';
 
-function pitchClassDistance(a: number, b: number): number {
-  const diff = Math.abs(normalizePitchClass(a - b));
-  return Math.min(diff, 12 - diff);
-}
-
 function getLowerPitch(referencePitch: number, relPitch: number, acceptEquals: boolean): number {
   const refPc = normalizePitchClass(referencePitch);
   let pitch = Math.floor(referencePitch / 12) * 12 + relPitch;
@@ -145,35 +140,276 @@ function computeChordScore(sourcePitches: number[], destPitches: number[]): numb
   return distance + 3 * topDelta + lowDelta;
 }
 
-function findClosestIndex(value: number, candidates: number[]): number {
-  let bestIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < candidates.length; i += 1) {
-    const distance = pitchClassDistance(value, candidates[i]);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = i;
-    }
+type DegreeNatural =
+  | 'ROOT'
+  | 'THIRD'
+  | 'FOURTH'
+  | 'FIFTH'
+  | 'SIXTH'
+  | 'SEVENTH'
+  | 'NINTH'
+  | 'ELEVENTH'
+  | 'THIRTEENTH';
+
+type DegreeName =
+  | 'ROOT'
+  | 'NINTH_FLAT'
+  | 'NINTH'
+  | 'NINTH_SHARP'
+  | 'THIRD_FLAT'
+  | 'THIRD'
+  | 'FOURTH_OR_ELEVENTH'
+  | 'ELEVENTH_SHARP'
+  | 'FIFTH_FLAT'
+  | 'FIFTH'
+  | 'FIFTH_SHARP'
+  | 'THIRTEENTH_FLAT'
+  | 'SIXTH_OR_THIRTEENTH'
+  | 'SEVENTH_FLAT'
+  | 'SEVENTH';
+
+const DEGREE_DEFS: Record<DegreeName, { pitch: number; natural: DegreeNatural; accidental: number }> = {
+  ROOT: { pitch: 0, natural: 'ROOT', accidental: 0 },
+  NINTH_FLAT: { pitch: 1, natural: 'NINTH', accidental: -1 },
+  NINTH: { pitch: 2, natural: 'NINTH', accidental: 0 },
+  NINTH_SHARP: { pitch: 3, natural: 'NINTH', accidental: 1 },
+  THIRD_FLAT: { pitch: 3, natural: 'THIRD', accidental: -1 },
+  THIRD: { pitch: 4, natural: 'THIRD', accidental: 0 },
+  FOURTH_OR_ELEVENTH: { pitch: 5, natural: 'FOURTH', accidental: 0 },
+  ELEVENTH_SHARP: { pitch: 6, natural: 'ELEVENTH', accidental: 1 },
+  FIFTH_FLAT: { pitch: 6, natural: 'FIFTH', accidental: -1 },
+  FIFTH: { pitch: 7, natural: 'FIFTH', accidental: 0 },
+  FIFTH_SHARP: { pitch: 8, natural: 'FIFTH', accidental: 1 },
+  THIRTEENTH_FLAT: { pitch: 8, natural: 'THIRTEENTH', accidental: -1 },
+  SIXTH_OR_THIRTEENTH: { pitch: 9, natural: 'SIXTH', accidental: 0 },
+  SEVENTH_FLAT: { pitch: 10, natural: 'SEVENTH', accidental: -1 },
+  SEVENTH: { pitch: 11, natural: 'SEVENTH', accidental: 0 },
+};
+
+type ChordFamily = 'major' | 'minor' | 'seventh' | 'diminished' | 'sus' | 'other';
+
+type ChordProfile = {
+  family: ChordFamily;
+  isMajor: boolean;
+  extension: string;
+  degreesByNatural: Map<DegreeNatural, DegreeName>;
+  degreesByPitch: Map<number, DegreeName>;
+};
+
+function degreeMostProbable(relPitch: number, isMajor: boolean): DegreeName {
+  switch (normalizePitchClass(relPitch)) {
+    case 0:
+      return 'ROOT';
+    case 1:
+      return 'NINTH_FLAT';
+    case 2:
+      return 'NINTH';
+    case 3:
+      return isMajor ? 'NINTH_SHARP' : 'THIRD_FLAT';
+    case 4:
+      return 'THIRD';
+    case 5:
+      return 'FOURTH_OR_ELEVENTH';
+    case 6:
+      return 'ELEVENTH_SHARP';
+    case 7:
+      return 'FIFTH';
+    case 8:
+      return 'THIRTEENTH_FLAT';
+    case 9:
+      return 'SIXTH_OR_THIRTEENTH';
+    case 10:
+      return 'SEVENTH_FLAT';
+    case 11:
+      return 'SEVENTH';
+    default:
+      return 'ROOT';
   }
-  return bestIndex;
 }
 
-function mapSourceDegreeToDestTone(sourceDegree: number, sourceTones: number[], destTones: number[]): number {
-  if (destTones.length === 0) {
-    return 0;
+function buildChordProfile(quality: string): ChordProfile {
+  const normalized = quality.trim().toLowerCase();
+  const isMinor = /^(min|m)(?!aj)/.test(normalized);
+  const hasSus = normalized.includes('sus');
+  const hasDim = normalized.includes('dim');
+  const hasMaj = normalized.includes('maj');
+  const hasSeventh = normalized.includes('7');
+  const isMajor = hasMaj || (!isMinor && !hasDim && !hasSus);
+
+  let family: ChordFamily = 'major';
+  if (hasSus) {
+    family = 'sus';
+  } else if (hasDim) {
+    family = 'diminished';
+  } else if (isMinor) {
+    family = 'minor';
+  } else if (hasSeventh) {
+    family = 'seventh';
   }
-  if (sourceTones.length === 0) {
-    return destTones[0];
+
+  const degreesByNatural = new Map<DegreeNatural, DegreeName>();
+  const degreesByPitch = new Map<number, DegreeName>();
+  const addDegree = (natural: DegreeNatural, degree: DegreeName) => {
+    degreesByNatural.set(natural, degree);
+    if (!degreesByPitch.has(DEGREE_DEFS[degree].pitch)) {
+      degreesByPitch.set(DEGREE_DEFS[degree].pitch, degree);
+    }
+  };
+
+  addDegree('ROOT', 'ROOT');
+
+  if (hasSus) {
+    addDegree('FOURTH', 'FOURTH_OR_ELEVENTH');
+  } else if (isMinor) {
+    addDegree('THIRD', 'THIRD_FLAT');
+  } else {
+    addDegree('THIRD', 'THIRD');
   }
-  let srcIndex = sourceTones.indexOf(sourceDegree);
-  if (srcIndex === -1) {
-    srcIndex = findClosestIndex(sourceDegree, sourceTones);
+
+  let fifthDegree: DegreeName = 'FIFTH';
+  if (normalized.includes('b5') || normalized.startsWith('dim')) {
+    fifthDegree = 'FIFTH_FLAT';
+  } else if (
+    normalized.includes('#5') ||
+    normalized.includes('aug') ||
+    normalized.includes('+') ||
+    normalized.includes('b13')
+  ) {
+    fifthDegree = 'FIFTH_SHARP';
   }
-  if (destTones.length >= sourceTones.length) {
-    return destTones[Math.min(srcIndex, destTones.length - 1)];
+  addDegree('FIFTH', fifthDegree);
+
+  const hasDim7 = normalized.includes('dim7');
+  const hasMaj7 = normalized.includes('maj7') || normalized.includes('m7m') || normalized.includes('minmaj7');
+  if (hasDim7) {
+    addDegree('SIXTH', 'SIXTH_OR_THIRTEENTH');
+  } else if (hasMaj7) {
+    addDegree('SEVENTH', 'SEVENTH');
+  } else if (hasSeventh) {
+    addDegree('SEVENTH', 'SEVENTH_FLAT');
   }
-  const srcTone = sourceTones[srcIndex];
-  return destTones[findClosestIndex(srcTone, destTones)];
+
+  if (normalized.includes('6') || normalized.includes('13')) {
+    addDegree('SIXTH', 'SIXTH_OR_THIRTEENTH');
+  }
+
+  if (normalized.includes('b9')) {
+    addDegree('NINTH', 'NINTH_FLAT');
+  } else if (normalized.includes('#9')) {
+    addDegree('NINTH', 'NINTH_SHARP');
+  } else if (normalized.includes('9')) {
+    addDegree('NINTH', 'NINTH');
+  }
+
+  if (normalized.includes('#11')) {
+    addDegree('ELEVENTH', 'ELEVENTH_SHARP');
+  } else if (normalized.includes('11') || hasSus) {
+    addDegree('ELEVENTH', 'FOURTH_OR_ELEVENTH');
+  }
+
+  if (normalized.includes('b13') && !normalized.includes('#5')) {
+    addDegree('THIRTEENTH', 'THIRTEENTH_FLAT');
+  } else if (normalized.includes('13')) {
+    addDegree('THIRTEENTH', 'SIXTH_OR_THIRTEENTH');
+  }
+
+  return {
+    family,
+    isMajor,
+    extension: normalized,
+    degreesByNatural,
+    degreesByPitch,
+  };
+}
+
+function fitDegree(profile: ChordProfile, degree: DegreeName): DegreeName | null {
+  const natural = DEGREE_DEFS[degree].natural;
+  const direct = profile.degreesByNatural.get(natural);
+  if (direct) {
+    if (natural === 'SEVENTH' && profile.extension.includes('6')) {
+      return 'SIXTH_OR_THIRTEENTH';
+    }
+    return direct;
+  }
+  const byPitch = profile.degreesByPitch.get(DEGREE_DEFS[degree].pitch);
+  if (byPitch) {
+    return byPitch;
+  }
+  if (profile.extension.includes('6') && natural === 'SEVENTH') {
+    return 'SIXTH_OR_THIRTEENTH';
+  }
+  if (profile.degreesByNatural.has('SEVENTH') && natural === 'SIXTH') {
+    return profile.degreesByNatural.get('SEVENTH') ?? null;
+  }
+  return null;
+}
+
+function fitDegreeAdvanced(profile: ChordProfile, degree: DegreeName): DegreeName {
+  const direct = fitDegree(profile, degree);
+  if (direct) {
+    return direct;
+  }
+  switch (degree) {
+    case 'NINTH_FLAT':
+    case 'NINTH':
+    case 'NINTH_SHARP':
+      if (profile.extension.includes('m7b5') || profile.extension.includes('m9b5')) {
+        return 'NINTH_FLAT';
+      }
+      return 'NINTH';
+    case 'THIRD_FLAT':
+    case 'THIRD':
+      return 'FOURTH_OR_ELEVENTH';
+    case 'FOURTH_OR_ELEVENTH':
+      if (profile.family === 'minor' || profile.family === 'diminished') {
+        return 'FOURTH_OR_ELEVENTH';
+      }
+      if (profile.degreesByPitch.has(6)) {
+        return 'ELEVENTH_SHARP';
+      }
+      return 'FOURTH_OR_ELEVENTH';
+    case 'ELEVENTH_SHARP':
+      if (profile.family === 'sus') {
+        return 'FOURTH_OR_ELEVENTH';
+      }
+      return profile.degreesByNatural.get('FIFTH') ?? 'FIFTH';
+    case 'THIRTEENTH_FLAT':
+      return profile.degreesByNatural.get('FIFTH') ?? 'FIFTH';
+    case 'SIXTH_OR_THIRTEENTH':
+      if (profile.extension.includes('m7b5') || profile.extension.includes('m9b5')) {
+        return 'THIRTEENTH_FLAT';
+      }
+      if (profile.degreesByPitch.has(8)) {
+        return profile.degreesByPitch.get(8) ?? 'SIXTH_OR_THIRTEENTH';
+      }
+      return 'SIXTH_OR_THIRTEENTH';
+    case 'SEVENTH_FLAT':
+      if (profile.family === 'major' && profile.degreesByNatural.has('SIXTH')) {
+        return 'SEVENTH';
+      }
+      if (profile.extension.includes('dim7')) {
+        return 'SIXTH_OR_THIRTEENTH';
+      }
+      return 'SEVENTH_FLAT';
+    case 'SEVENTH':
+      if (profile.family === 'sus') {
+        return 'SEVENTH_FLAT';
+      }
+      if (profile.family === 'minor' && !profile.degreesByNatural.has('SIXTH')) {
+        return 'SEVENTH_FLAT';
+      }
+      if (profile.family === 'diminished') {
+        return profile.degreesByNatural.has('SIXTH') ? 'SIXTH_OR_THIRTEENTH' : 'SEVENTH_FLAT';
+      }
+      return 'SEVENTH';
+    default:
+      return degree;
+  }
+}
+
+function extractChordQuality(symbol: string): string {
+  const match = symbol.match(/^([A-Ga-g])([#b]?)([^/]*)/);
+  return match?.[3] ?? '';
 }
 
 type BuildSongOptions = {
@@ -196,6 +432,7 @@ type SourceChordData = {
   uniqueRelPcs: number[];
   sourceRoot: number;
   sourceTones: number[];
+  profile: ChordProfile;
 };
 
 export function buildSongFromStylePart(options: BuildSongOptions): {
@@ -233,6 +470,7 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
           endTick: totalTicks,
           root: 0,
           tones: [0, 4, 7, 10],
+          symbol: 'C7',
         },
       ];
 
@@ -262,13 +500,16 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
       }
     }
     const sourceRoot = normalizePitchClass(sourceChordByChannel.get(channel) ?? 0);
-    const sourceTones = chordTonesForTypeName(sourceChordTypeByChannel.get(channel)) ?? defaultTones;
+    const sourceChordName = sourceChordTypeByChannel.get(channel) ?? '';
+    const sourceTones = chordTonesForTypeName(sourceChordName) ?? defaultTones;
+    const profile = buildChordProfile(sourceChordName);
     sourceChordData.set(channel, {
       pitches,
       relPcs,
       uniqueRelPcs,
       sourceRoot,
       sourceTones,
+      profile,
     });
   }
 
@@ -278,10 +519,30 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
         return segment;
       }
     }
-    return segments[segments.length - 1] ?? { root: 0, tones: [0, 4, 7, 10], startTick: 0, endTick: totalTicks };
+    return (
+      segments[segments.length - 1] ?? {
+        root: 0,
+        tones: [0, 4, 7, 10],
+        symbol: 'C7',
+        startTick: 0,
+        endTick: totalTicks,
+      }
+    );
   };
 
   const chordModeCache = new Map<string, Map<number, number>>();
+  const destProfileCache = new Map<string, ChordProfile>();
+  const getDestProfile = (segment: ChordSegment): ChordProfile => {
+    const key = segment.symbol ?? `${segment.root}:${segment.tones.join(',')}`;
+    const cached = destProfileCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const quality = extractChordQuality(segment.symbol ?? '');
+    const profile = buildChordProfile(quality);
+    destProfileCache.set(key, profile);
+    return profile;
+  };
   const getChordModeMapping = (channel: number, segment: ChordSegment): Map<number, number> | null => {
     const key = `${channel}:${segment.startTick}:${segment.root}:${segment.tones.join(',')}`;
     const cached = chordModeCache.get(key);
@@ -292,10 +553,12 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
     if (!data || data.pitches.length === 0 || data.uniqueRelPcs.length === 0) {
       return null;
     }
-    const tones = segment.tones.length ? segment.tones : defaultTones;
-    const sourceDegrees = data.uniqueRelPcs.map((pc) => normalizePitchClass(pc - data.sourceRoot));
+    const destProfile = getDestProfile(segment);
+    const sourceDegrees = data.uniqueRelPcs.map((pc) =>
+      degreeMostProbable(normalizePitchClass(pc - data.sourceRoot), data.profile.isMajor)
+    );
     const destRelPitches = sourceDegrees.map((degree) =>
-      normalizePitchClass(segment.root + mapSourceDegreeToDestTone(degree, data.sourceTones, tones))
+      normalizePitchClass(segment.root + DEGREE_DEFS[fitDegreeAdvanced(destProfile, degree)].pitch)
     );
     const permutations = destRelPitches.length > 1 ? uniquePermutations(destRelPitches) : [destRelPitches];
     let bestChord: number[] | null = null;
@@ -359,13 +622,11 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
         const ctb2 = ctb2ByChannel.get(note.channel);
         const targetRoot = normalizePitchClass(segment.root);
         const sourceRoot = normalizePitchClass(sourceChordByChannel.get(note.channel) ?? 0);
-        const tones = segment.tones.length ? segment.tones : defaultTones;
 
         let pitch = note.pitch;
         if (!isDrums(destChannel)) {
-          const isChordMode =
-            ctb2 !== undefined &&
-            (ctb2.ntr === 1 || ctb2.ntr === 2 || (ctb2.ntr === 0 && ctb2.ntt === 2));
+          const isChordMode = ctb2 !== undefined && (ctb2.ntr === 1 || ctb2.ntr === 2);
+          const isMelodyMode = ctb2 !== undefined && ctb2.ntr === 0 && ctb2.ntt !== 0;
 
           if (isChordMode) {
             const mapping = getChordModeMapping(note.channel, segment);
@@ -373,11 +634,14 @@ export function buildSongFromStylePart(options: BuildSongOptions): {
             if (mapped !== undefined) {
               pitch = mapped;
             }
-          } else if (ctb2 && ctb2.ntr === 0 && ctb2.ntt !== 0) {
-            const sourceTones = chordTonesForTypeName(sourceChordTypeByChannel.get(note.channel)) ?? defaultTones;
+          } else if (isMelodyMode) {
+            const data = sourceChordData.get(note.channel);
+            const sourceProfile = data?.profile ?? buildChordProfile('');
+            const destProfile = getDestProfile(segment);
             const srcRelPitch = normalizePitchClass(note.pitch - sourceRoot);
-            const destTone = mapSourceDegreeToDestTone(srcRelPitch, sourceTones, tones);
-            const destRelPitch = normalizePitchClass(targetRoot + destTone);
+            const srcDegree = degreeMostProbable(srcRelPitch, sourceProfile.isMajor);
+            const destDegree = fitDegreeAdvanced(destProfile, srcDegree);
+            const destRelPitch = normalizePitchClass(targetRoot + DEGREE_DEFS[destDegree].pitch);
             const rootDelta = normalizePitchClass(targetRoot - sourceRoot);
             const basePitch = note.pitch + rootDelta;
             pitch = getClosestPitch(basePitch, destRelPitch);

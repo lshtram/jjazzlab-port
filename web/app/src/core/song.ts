@@ -6,6 +6,7 @@ export type ChordSegment = {
   endTick: number;
   root: number;
   tones: number[];
+  symbol: string;
 };
 
 export type ChordChart = {
@@ -67,7 +68,7 @@ export function buildChordTimeline(options: {
       if (last && last.root === root && last.tones.join(',') === tones.join(',')) {
         last.endTick = endTick;
       } else {
-        segments.push({ startTick, endTick, root, tones });
+        segments.push({ startTick, endTick, root, tones, symbol: chord });
       }
     }
   }
