@@ -86,6 +86,69 @@ function computeTempoMicroseconds(tempo?: number, fallback: number): number {
   return Math.round(60_000_000 / tempo);
 }
 
+function parseChordRoot(chord: string): number {
+  const match = chord.match(/^([A-Ga-g])([#b]?)/);
+  if (!match) {
+    return 0;
+  }
+  const letter = match[1].toUpperCase();
+  const accidental = match[2] ?? '';
+  const baseMap: Record<string, number> = {
+    C: 0,
+    D: 2,
+    E: 4,
+    F: 5,
+    G: 7,
+    A: 9,
+    B: 11,
+  };
+  let root = baseMap[letter] ?? 0;
+  if (accidental === '#') {
+    root += 1;
+  } else if (accidental === 'b') {
+    root -= 1;
+  }
+  return (root + 12) % 12;
+}
+
+function buildBluesChordTimeline(bars: number, ticksPerBar: number) {
+  const changes = [
+    { bar: 0, chord: 'Bb7' },
+    { bar: 4, chord: 'Eb7' },
+    { bar: 6, chord: 'Bb7' },
+    { bar: 8, chord: 'F7' },
+    { bar: 9, chord: 'Eb7' },
+    { bar: 10, chord: 'Bb7' },
+    { bar: 11, chord: 'F7' },
+  ];
+
+  const chordAtBar = (bar: number) => {
+    const cycleBar = bar % 12;
+    let chord = changes[0].chord;
+    for (const change of changes) {
+      if (cycleBar >= change.bar) {
+        chord = change.chord;
+      }
+    }
+    return chord;
+  };
+
+  const segments: { startTick: number; endTick: number; root: number }[] = [];
+  for (let bar = 0; bar < bars; bar += 1) {
+    const chord = chordAtBar(bar);
+    const root = parseChordRoot(chord);
+    const startTick = bar * ticksPerBar;
+    const endTick = startTick + ticksPerBar;
+    const last = segments[segments.length - 1];
+    if (last && last.root === root) {
+      last.endTick = endTick;
+    } else {
+      segments.push({ startTick, endTick, root });
+    }
+  }
+  return segments;
+}
+
 const args = parseArgs(process.argv.slice(2));
 if (!args.style || !args.out) {
   printUsage();
@@ -114,6 +177,12 @@ const { notes } = buildSongFromStylePart({
   tempo,
   timeSignature,
   part,
+  chordTimeline: buildBluesChordTimeline(
+    args.bars,
+    args.outputTicksPerBeat * ((timeSignature.numerator * 4) / timeSignature.denominator)
+  ),
+  channelMap: parsed.channelMap,
+  sourceChordByChannel: parsed.sourceChordByChannel,
 });
 
 const midi = buildMidiFile({

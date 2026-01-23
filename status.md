@@ -12,7 +12,8 @@
 - Added Vite + React + TypeScript scaffold at `web/app` with TS harness tools.
 - Added MIDI fixtures `web/fixtures/midi/java/jazzblues_simple_12bar.mid` and `web/fixtures/midi/ts/jazzblues_simple_12bar.mid`.
 - Updated `web/fixtures/midi/README.md` with offline export steps.
-  - TS harness currently repeats the "Main A" pattern without chord transposition.
+  - TS harness applies CASM channel mapping and root-only chord transposition with chord-boundary splits.
+  - MIDI note counts now match the Java baseline; timing differs slightly.
 
 ## Working Tree Snapshot
 - Modified: `JJazzLab/core/SongStructure/src/main/java/org/jjazz/songstructure/SongStructureImpl.java`
@@ -21,6 +22,5 @@
 - Pre-existing unrelated change: `JJazzLab/plugins/FluidSynthEmbeddedSynth/pom.xml`
 
 ## Next Steps
-- Improve Yamaha parsing (CASM Ctab/Ctb2 rules + chord transposition) for parity.
-- Align channel mapping with Java output (currently TS uses channel 8 where Java uses 9).
-- Keep iterating on MIDI comparison until counts/timing match the Java baseline.
+- Improve Yamaha parsing (Ctb2 NTR/NTT + chord-quality rules) for parity.
+- Align event timing (TS endTick differs slightly from Java).

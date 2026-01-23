@@ -1,4 +1,5 @@
 import { parseMidiData, getTempoFromTrack, getTimeSignatureFromTrack, NoteEvent } from '../lib/midi.js';
+import { parseCasmFromBuffer } from './parseCasm.js';
 
 export type StylePart = {
   id: string;
@@ -13,6 +14,8 @@ export type ParsedStyle = {
   tempo: number;
   timeSignature: { numerator: number; denominator: number } | null;
   parts: StylePart[];
+  channelMap: Map<number, number>;
+  sourceChordByChannel: Map<number, number>;
 };
 
 type MidiEvent = Record<string, unknown> & {
@@ -35,6 +38,9 @@ export function parseStyleFromBuffer(buffer: Buffer): ParsedStyle {
   const track = midi.tracks[0] ?? [];
   const tempo = getTempoFromTrack(track) ?? 500000;
   const timeSignature = getTimeSignatureFromTrack(track);
+  const casmInfo = parseCasmFromBuffer(buffer);
+  const channelMap = casmInfo?.channelMap ?? new Map<number, number>();
+  const sourceChordByChannel = casmInfo?.sourceChordByChannel ?? new Map<number, number>();
 
   const parts: StylePart[] = [];
   let currentPart: StylePart | null = null;
@@ -127,5 +133,7 @@ export function parseStyleFromBuffer(buffer: Buffer): ParsedStyle {
     tempo,
     timeSignature,
     parts,
+    channelMap,
+    sourceChordByChannel,
   };
 }
